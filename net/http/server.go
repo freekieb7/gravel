@@ -1,44 +1,56 @@
 package http
 
-import (
-	"net/http"
-)
+import "net/http"
 
-type Server struct {
-	Router *Router
+type Server interface {
+	Router() Router
+	SetRouter(router Router)
+
+	Listen() error
 }
 
-func NewServer() *Server {
-	return &Server{
-		Router: NewRouter(),
+type server struct {
+	router Router
+}
+
+func NewServer() Server {
+	return &server{
+		router: NewRouter(),
 	}
 }
 
-func (server *Server) Listen() {
-	server.merge("", *server.Router)
-
-	http.ListenAndServe(":8080", nil)
+func (server *server) Router() Router {
+	return server.router
 }
 
-func (server *Server) merge(basePath string, group Router) {
-	for _, route := range group.Routes {
-		path := basePath + group.Path + route.Path
+func (server *server) SetRouter(router Router) {
+	server.router = router
+}
+
+func (server *server) Listen() error {
+	server.merge("", server.router)
+
+	return http.ListenAndServe(":8080", nil)
+}
+
+func (server *server) merge(basePath string, parentGroup Router) {
+	for _, route := range parentGroup.Routes() {
+		path := basePath + parentGroup.Path() + route.Path
 
 		routeWithMiddleware := MethodCheckMiddleware(route.Methods, RecoverMiddleware(route.Handler))
-		for _, middleware := range append(group.Middleware, route.Middleware...) {
+		for _, middleware := range append(parentGroup.Middleware(), route.Middleware...) {
 			routeWithMiddleware = middleware(routeWithMiddleware)
 		}
 
 		// Serve HTTP
 		http.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			routeWithMiddleware.ServeHTTP(&Request{r}, &Response{w})
+			routeWithMiddleware.ServeHTTP(&request{r}, &response{w})
 		})
 	}
 
 	// Process the branching endpoints
-	for _, subGroup := range group.Groups {
-		subGroup.Middleware = append(group.Middleware, subGroup.Middleware...)
-		server.merge(basePath+group.Path, subGroup)
+	for _, childGroup := range parentGroup.Groups() {
+		childGroup.SetMiddleware(append(parentGroup.Middleware(), childGroup.Middleware()...)...)
+		server.merge(basePath+parentGroup.Path(), childGroup)
 	}
-
 }

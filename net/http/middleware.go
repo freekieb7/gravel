@@ -16,7 +16,7 @@ import (
 type MiddlewareFunc func(next Handler) Handler
 
 func RecoverMiddleware(next Handler) Handler {
-	return HandlerFunc(func(request *Request, response *Response) {
+	return HandlerFunc(func(request Request, response Response) {
 		defer func() {
 			if recover := recover(); recover != nil {
 				log.Println(recover)
@@ -31,8 +31,8 @@ func RecoverMiddleware(next Handler) Handler {
 }
 
 func MethodCheckMiddleware(methods []string, next Handler) Handler {
-	return HandlerFunc(func(request *Request, response *Response) {
-		if !slices.Contains(methods, request.original.Method) {
+	return HandlerFunc(func(request Request, response Response) {
+		if !slices.Contains(methods, request.Method()) {
 			return
 		}
 
@@ -41,13 +41,13 @@ func MethodCheckMiddleware(methods []string, next Handler) Handler {
 }
 
 func EnforceCookieMiddleware(next Handler) Handler {
-	return HandlerFunc(func(request *Request, response *Response) {
+	return HandlerFunc(func(request Request, response Response) {
 		_, err := request.Cookie("SID")
 		if errors.Is(err, ErrNoCookie) {
 			rawCookieValue := make([]byte, 16)
 			rand.Read(rawCookieValue)
 
-			cookie := &http.Cookie{
+			cookie := Cookie{
 				Name:        "SID",
 				Value:       base64.URLEncoding.EncodeToString(rawCookieValue),
 				Expires:     time.Now().Add(365 * 24 * time.Hour),
@@ -55,11 +55,11 @@ func EnforceCookieMiddleware(next Handler) Handler {
 				HttpOnly:    true,
 				Path:        "/",
 				Partitioned: true,
-				SameSite:    http.SameSiteStrictMode,
+				SameSite:    SameSiteStrictMode,
 			}
 
-			request.original.AddCookie(cookie) // Request
-			http.SetCookie(response, cookie)   // Response
+			request.AddCookie(cookie)
+			response.AddCookie(cookie)
 		}
 
 		next.ServeHTTP(request, response)
@@ -69,18 +69,18 @@ func EnforceCookieMiddleware(next Handler) Handler {
 func SessionMiddleware(next Handler) Handler {
 	sessionStore := storage.NewMemorySessionStore()
 
-	return HandlerFunc(func(request *Request, response *Response) {
+	return HandlerFunc(func(request Request, response Response) {
 		cookie, err := request.Cookie("SID")
 		if errors.Is(err, http.ErrNoCookie) {
 			response.WithStatus(500)
 			return
 		}
 
-		sessionId := cookie.Value()
+		sessionId := cookie.Value
 		sess := session.NewDefaultSession(sessionId, "memses", make(map[string]any))
 
 		if sessionStore.Has(sessionId) {
-			attributes, err := sessionStore.Get(cookie.Value())
+			attributes, err := sessionStore.Get(sessionId)
 			if err != nil {
 				log.Fatal(err)
 			}

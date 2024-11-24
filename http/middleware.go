@@ -33,6 +33,7 @@ func RecoverMiddleware(next Handler) Handler {
 func MethodCheckMiddleware(methods []string, next Handler) Handler {
 	return HandlerFunc(func(request Request, response Response) {
 		if !slices.Contains(methods, request.Method()) {
+			response.WithStatus(405)
 			return
 		}
 

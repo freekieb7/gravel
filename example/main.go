@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/freekieb7/gravel/net/http"
+	"github.com/freekieb7/gravel/http"
 	"github.com/freekieb7/gravel/validation"
 )
 
@@ -15,10 +15,10 @@ func main() {
 	server.Router().Get("/", func(request http.Request, response http.Response) {
 		violations := validation.ValidateMap(
 			map[string]any{
-				"title": "test",
+				"title": []string{"test"},
 			},
 			map[string][]string{
-				"title": {"required", "max:255"},
+				"title": {"required", "max:255", "min:5"},
 			},
 		)
 

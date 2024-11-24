@@ -2,19 +2,158 @@ package validation
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
+	"sync"
 )
 
-// type Validator interface {
-// 	Validate(request http.Request) (Violations, error)
-// }
+type ValidateFunc func(rule string, fieldName string, fieldValue any) error
 
-// type validator struct {
-// 	rules map[string]string
-// }
+var rulesMutex sync.RWMutex
+var knownRules map[*regexp.Regexp]ValidateFunc = make(map[*regexp.Regexp]ValidateFunc, 0)
+
+func init() {
+	// Rule "required"
+	RegisterRule(`^required$`, func(rule, fieldName string, fieldValue any) error {
+		err := fmt.Errorf("%s is required", fieldName)
+
+		switch v := fieldValue.(type) {
+		case nil:
+			{
+				return err
+			}
+		case string:
+			{
+				if v == "" {
+					return err
+				}
+			}
+		default:
+			{
+				// Support for more complex types
+				v := reflect.ValueOf(fieldValue)
+				switch v.Kind() {
+				case reflect.Slice, reflect.Array, reflect.Map:
+					{
+						if v.Len() == 0 {
+							return err
+						}
+					}
+				default:
+					{
+						return fmt.Errorf("unknown type %T", fieldValue)
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+
+	// Rule "max"
+	RegisterRule(`^max:\d+`, func(rule, fieldName string, fieldValue any) error {
+		parts := strings.Split(rule, ":")
+		rawMaxSize := parts[1]
+		maxSize, err := strconv.Atoi(rawMaxSize)
+		if err != nil {
+			return err
+		}
+
+		switch value := fieldValue.(type) {
+		case string:
+			{
+				if len(value) > maxSize {
+					return fmt.Errorf("%s exceeds max size of %d", fieldName, maxSize)
+				}
+			}
+		case int:
+			{
+				if value > maxSize {
+					return fmt.Errorf("%s exceeds max size of %d", fieldName, maxSize)
+				}
+			}
+		default:
+			{
+				v := reflect.ValueOf(fieldValue)
+				switch v.Kind() {
+				case reflect.Slice, reflect.Array, reflect.Map:
+					{
+						if v.Len() > maxSize {
+							return fmt.Errorf("%s exceeds max size of %d", fieldName, maxSize)
+						}
+					}
+				default:
+					{
+						return fmt.Errorf("unknown type %T", fieldValue)
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+
+	// Rule "min"
+	RegisterRule(`^min:\d+`, func(rule, fieldName string, fieldValue any) error {
+		parts := strings.Split(rule, ":")
+		rawMinSize := parts[1]
+		minSize, err := strconv.Atoi(rawMinSize)
+		if err != nil {
+			return err
+		}
+
+		switch value := fieldValue.(type) {
+		case string:
+			{
+				if len(value) < minSize {
+					return fmt.Errorf("%s subceeds min size of %d", fieldName, minSize)
+				}
+			}
+		case int:
+			{
+				if value < minSize {
+					return fmt.Errorf("%s subceeds min size of %d", fieldName, minSize)
+				}
+			}
+		default:
+			{
+
+				v := reflect.ValueOf(fieldValue)
+				switch v.Kind() {
+				case reflect.Slice, reflect.Array, reflect.Map:
+					{
+						if v.Len() < minSize {
+							return fmt.Errorf("%s subceeds min size of %d", fieldName, minSize)
+						}
+
+						return errors.New(string(v.Len()))
+					}
+				default:
+					{
+						return fmt.Errorf("unknown type %T", fieldValue)
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
+func RegisterRule(regExpSyntax string, validateFunc ValidateFunc) {
+	rulesMutex.Lock()
+	defer rulesMutex.Unlock()
+	ruleRegexp, err := regexp.Compile(regExpSyntax)
+	if err != nil {
+		panic(err)
+	}
+
+	knownRules[ruleRegexp] = validateFunc
+}
 
 type Violations struct {
 	Errors map[string][]error
@@ -42,137 +181,36 @@ func ValidateMap(data map[string]any, rules map[string][]string) Violations {
 	var violations Violations
 	violations.Errors = make(map[string][]error)
 
-	for attributeName, attributeValue := range data {
-		attributeRules, attributeRulesExists := rules[attributeName]
-		if !attributeRulesExists {
-			violations.Errors[attributeName] = append(violations.Errors[attributeName], fmt.Errorf("validation: no rules found :: %s", attributeName))
+	for fieldName, fieldValue := range data {
+		fieldRules, ruleExistsForField := rules[fieldName]
+		if !ruleExistsForField {
+			violations.Errors[fieldName] = append(violations.Errors[fieldName], fmt.Errorf("validation: no rules found :: %s", fieldName))
 			continue
 		}
 
 		var errorCollection []error
-		for _, attributeRule := range attributeRules {
-			if err := validate(attributeRule, attributeName, attributeValue); err != nil {
-				errorCollection = append(errorCollection, err)
+
+	nextRule:
+		for _, fieldRule := range fieldRules {
+			for knownRuleRegexp, validateRuleFunc := range knownRules {
+				if !knownRuleRegexp.MatchString(fieldRule) {
+					continue
+				}
+
+				if err := validateRuleFunc(fieldRule, fieldName, fieldValue); err != nil {
+					errorCollection = append(errorCollection, err)
+				}
+
+				continue nextRule
 			}
+
+			panic(fmt.Sprintf("validation: invalid rule found :: %s", fieldRule))
 		}
 
 		if len(errorCollection) != 0 {
-			violations.Errors[attributeName] = errorCollection
+			violations.Errors[fieldName] = errorCollection
 		}
 	}
 
 	return violations
-}
-
-func validate(rule string, name string, value any) error {
-	switch rule {
-	case "required":
-		{
-			err := fmt.Errorf("%s is required", name)
-
-			switch v := value.(type) {
-			case nil:
-				{
-					return err
-				}
-			case string:
-				{
-					if v == "" {
-						return err
-					}
-				}
-			case []any:
-				{
-					if len(v) == 0 {
-						return err
-					}
-				}
-			}
-		}
-	default:
-		{
-			return fmt.Errorf("invalid validation rule :: %s", rule)
-		}
-	}
-
-	return nil
-}
-
-// Numberic operations
-func ValidateInteger(value string) bool {
-	_, err := strconv.Atoi(value)
-	return err == nil
-}
-
-func ValidateGreaterThen(value string, size int) bool {
-	valueAsInt, err := strconv.Atoi(value)
-	if err != nil {
-		return false
-	}
-
-	return valueAsInt > size
-}
-
-func ValidateGreaterThenOrEqual(value string, size int) bool {
-	valueAsInt, err := strconv.Atoi(value)
-	if err != nil {
-		return false
-	}
-
-	return valueAsInt >= size
-}
-
-func ValidateLesserThen(value string, size int) bool {
-	valueAsInt, err := strconv.Atoi(value)
-	if err != nil {
-		return false
-	}
-
-	return valueAsInt < size
-}
-
-func ValidateLesserThenOrEqual(value string, size int) bool {
-	valueAsInt, err := strconv.Atoi(value)
-	if err != nil {
-		return false
-	}
-
-	return valueAsInt <= size
-}
-
-// Boolean operations
-func ValidateBoolean(value string) bool {
-	return ValidateTrue(value) || ValidateFalse(value)
-}
-
-func ValidateTrue(value string) bool {
-	return value == "1" || value == "true"
-}
-
-func ValidateFalse(value string) bool {
-	return value == "0" || value == "false"
-}
-
-// string operations
-func ValidateContains(value string, needle string) bool {
-	return strings.Contains(value, needle)
-}
-
-// Time operations
-func ValidateBefore(value string, format string, timestamp time.Time) bool {
-	valueAsTime, err := time.Parse(format, value)
-	if err != nil {
-		return false
-	}
-
-	return timestamp.Before(valueAsTime)
-}
-
-func ValidateAfter(value string, format string, timestamp time.Time) bool {
-	valueAsTime, err := time.Parse(format, value)
-	if err != nil {
-		return false
-	}
-
-	return timestamp.After(valueAsTime)
 }

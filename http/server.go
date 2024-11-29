@@ -1,21 +1,31 @@
 package http
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+
+	"github.com/freekieb7/gravel/telemetry"
+)
 
 type Server interface {
 	Router() Router
 	SetRouter(router Router)
 
-	Listen() error
+	Run(ctx context.Context) error
+	Shutdown(ctx context.Context) error
 }
 
 type server struct {
-	router Router
+	name        string
+	router      Router
+	otelShudown func(context.Context) error
 }
 
-func NewServer() Server {
+func NewServer(name string) Server {
 	return &server{
-		router: NewRouter(),
+		name:        name,
+		router:      NewRouter(),
+		otelShudown: func(ctx context.Context) error { return nil },
 	}
 }
 
@@ -27,13 +37,33 @@ func (server *server) SetRouter(router Router) {
 	server.router = router
 }
 
-func (server *server) Listen() error {
-	server.merge("", server.router)
+func (server *server) Run(ctx context.Context) error {
+	// Setup opentelemetry
+	otelShutdown, err := telemetry.Setup(ctx)
+	if err != nil {
+		return err
+	}
+	server.otelShudown = otelShutdown
+
+	// Setup routes
+	server.buildRoutes("", server.router)
+
+	// Run
+	// srv := &http3.Server{
+	// 	Addr:    "localhost:8080",
+	// 	Handler: http.NewServeMux(),
+	// }
+	// srv.TLSConfig = &tls.Config{}
+	// return srv.ListenAndServe()
 
 	return http.ListenAndServe(":8080", nil)
 }
 
-func (server *server) merge(basePath string, parentGroup Router) {
+func (server *server) Shutdown(ctx context.Context) error {
+	return server.otelShudown(ctx)
+}
+
+func (server *server) buildRoutes(basePath string, parentGroup Router) {
 	for _, route := range parentGroup.Routes() {
 		path := basePath + parentGroup.Path() + route.Path
 
@@ -51,6 +81,6 @@ func (server *server) merge(basePath string, parentGroup Router) {
 	// Process the branching endpoints
 	for _, childGroup := range parentGroup.Groups() {
 		childGroup.SetMiddleware(append(parentGroup.Middleware(), childGroup.Middleware()...)...)
-		server.merge(basePath+parentGroup.Path(), childGroup)
+		server.buildRoutes(basePath+parentGroup.Path(), childGroup)
 	}
 }

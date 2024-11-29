@@ -1,0 +1,16 @@
+services:
+  alloy:
+    image: grafana/alloy:latest
+    pull_policy: always
+    restart: on-failure
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=experimental # Enable all functionality
+    ports:
+      - "12345:12345"
+      - "4317:4317"

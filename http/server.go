@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/freekieb7/gravel/telemetry"
+	"github.com/valyala/fasthttp"
 )
 
 type Server interface {
@@ -48,15 +49,7 @@ func (server *server) Run(ctx context.Context) error {
 	// Setup routes
 	server.buildRoutes("", server.router)
 
-	// Run
-	// srv := &http3.Server{
-	// 	Addr:    "localhost:8080",
-	// 	Handler: http.NewServeMux(),
-	// }
-	// srv.TLSConfig = &tls.Config{}
-	// return srv.ListenAndServe()
-
-	return http.ListenAndServe(":8080", nil)
+	return fasthttp.ListenAndServe(":8080", nil)
 }
 
 func (server *server) Shutdown(ctx context.Context) error {

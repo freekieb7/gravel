@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"os/signal"
 	"strconv"
+	"time"
 
+	"github.com/freekieb7/gravel/filesystem"
 	"github.com/freekieb7/gravel/http"
+	"github.com/freekieb7/gravel/scheduler"
 	"github.com/freekieb7/gravel/validation"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
@@ -42,14 +46,13 @@ func init() {
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(context.Background()); err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func run() error {
-	// Handle SIGINT (CTRL+C) gracefully.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+func run(ctx context.Context) error {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
 	server := http.NewServer("gravel")
@@ -73,6 +76,11 @@ func run() error {
 		}
 	})
 
+	server.Router().Get("/write_file", func(request http.Request, response http.Response) {
+		fs := filesystem.NewLocalFileSystem()
+		fs.CreateFile("test.md")
+	})
+
 	server.Router().Get("/roll", func(request http.Request, response http.Response) {
 		ctx, span := tracer.Start(request.Context(), "roll")
 		defer span.End()
@@ -92,6 +100,27 @@ func run() error {
 		response.WithText(resp)
 	})
 
+	server.Router().Get("/ticker", func(request http.Request, response http.Response) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+		defer cancel()
+
+		task := scheduler.NewTask(
+			func(number int) {
+				fmt.Printf("Task %d: Time is now %s", number, time.Now())
+			},
+			0,
+		)
+
+		job := scheduler.NewJob().
+			WithTasks(*task).
+			WithInterval(time.Second * 2)
+
+		scheduler := scheduler.NewScheduler()
+		scheduler.AddJob(*job)
+
+		scheduler.Run(ctx)
+	})
+
 	server.Router().Group("/v1", func(group http.Router) {
 		group.Get("/", func(request http.Request, response http.Response) {
 			response.WithJson(`{"test": "test"}`)
@@ -103,19 +132,14 @@ func run() error {
 		serverErrorChannel <- server.Run(ctx)
 	}()
 
-	// Wait for interruption.
 	select {
 	case err := <-serverErrorChannel:
-		// Error when starting HTTP server.
 		return err
 	case <-ctx.Done():
-		// Wait for first CTRL+C.
-		// Stop receiving signal notifications as soon as possible.
 		stop()
 	}
 
-	// When Shutdown is called, ListenAndServe immediately returns ErrServerClosed.
-	return server.Shutdown(context.Background())
+	return server.Shutdown(ctx)
 }
 
 func exampleMiddleware(next http.Handler) http.Handler {

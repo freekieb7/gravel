@@ -6,18 +6,11 @@ import (
 	"net/http"
 )
 
-type Response interface {
-	AddCookie(cookie Cookie)
-	WithStatus(status int) Response
-	WithJson(payload any) Response
-	WithText(payload string) Response
-}
-
-type response struct {
+type Response struct {
 	original http.ResponseWriter
 }
 
-func (response *response) AddCookie(cookie Cookie) {
+func (response *Response) AddCookie(cookie Cookie) {
 	http.SetCookie(response.original, &http.Cookie{
 		Name:        cookie.Name,
 		Value:       cookie.Value,
@@ -32,12 +25,12 @@ func (response *response) AddCookie(cookie Cookie) {
 	})
 }
 
-func (response *response) WithStatus(status int) Response {
+func (response *Response) WithStatus(status int) *Response {
 	response.original.WriteHeader(status)
 	return response
 }
 
-func (response *response) WithJson(payload any) Response {
+func (response *Response) WithJson(payload any) *Response {
 	response.original.Header().Set("Content-Type", "application/json")
 
 	if vStr, ok := payload.(string); ok {
@@ -49,7 +42,7 @@ func (response *response) WithJson(payload any) Response {
 	return response
 }
 
-func (response *response) WithText(payload string) Response {
+func (response *Response) WithText(payload string) *Response {
 	response.original.Header().Set("Content-Type", "text/plain")
 	response.original.Write([]byte(payload))
 	return response

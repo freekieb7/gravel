@@ -1,134 +1,83 @@
 package http
 
+import "net/http"
+
 type Handler interface {
-	ServeHTTP(Request, Response)
+	ServeHTTP(*Request, Response)
 }
 
-type HandlerFunc func(request Request, response Response)
+type HandleFunc func(request *Request, response Response)
 
-func (handlerFunc HandlerFunc) ServeHTTP(request Request, response Response) {
-	handlerFunc(request, response)
+func (handleFunc HandleFunc) ServeHTTP(request *Request, response Response) {
+	handleFunc(request, response)
 }
 
-type Router interface {
-	Get(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Post(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Put(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Delete(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Connect(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Options(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Trace(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Patch(path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-	Any(methods []string, path string, handler HandlerFunc, middleware ...MiddlewareFunc)
-
-	Group(path string, groupFunc func(group Router), middleware ...MiddlewareFunc)
-
-	Middleware() []MiddlewareFunc
-	AddMiddleware(middleware ...MiddlewareFunc)
-	SetMiddleware(middleware ...MiddlewareFunc)
-
-	Path() string
-	SetPath(path string)
-
-	Routes() []Route
-	Groups() []Router
-}
-
-type router struct {
-	path       string
-	routes     []Route
-	groups     []Router
-	middleware []MiddlewareFunc
+type Router struct {
+	Path       string
+	Routes     []Route
+	Groups     []Router
+	Middleware []MiddlewareFunc
 }
 
 func NewRouter() Router {
-	return &router{
-		path:       "",
-		routes:     make([]Route, 0),
-		groups:     make([]Router, 0),
-		middleware: make([]MiddlewareFunc, 0),
+	return Router{
+		Path:       "",
+		Routes:     make([]Route, 0),
+		Groups:     make([]Router, 0),
+		Middleware: make([]MiddlewareFunc, 0),
 	}
 }
 
-func (router *router) Get(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"GET"}, path, handler, middleware...)
+func (router *Router) GET(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodGet}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Post(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"POST"}, path, handler, middleware...)
+func (router *Router) HEAD(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodHead}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Put(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"PUT"}, path, handler, middleware...)
+func (router *Router) POST(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodPost}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Delete(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"DELETE"}, path, handler, middleware...)
+func (router *Router) PUT(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodPut}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Connect(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"CONNECT"}, path, handler, middleware...)
+func (router *Router) Patch(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodPatch}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Options(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"OPTIONS"}, path, handler, middleware...)
+func (router *Router) DELETE(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodDelete}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Trace(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"TRACE"}, path, handler, middleware...)
+func (router *Router) CONNECT(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodConnect}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Option(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"OPTION"}, path, handler, middleware...)
+func (router *Router) OPTIONS(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodOptions}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Patch(path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.Any([]string{"PATCH"}, path, handler, middleware...)
+func (router *Router) TRACE(path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Any([]string{http.MethodTrace}, path, handleFunc, middlewareFunc...)
 }
 
-func (router *router) Any(methods []string, path string, handler HandlerFunc, middleware ...MiddlewareFunc) {
-	router.routes = append(router.routes, Route{
+func (router *Router) Any(methods []string, path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	router.Routes = append(router.Routes, Route{
 		Methods:    methods,
 		Path:       path,
-		Handler:    handler,
-		Middleware: middleware,
+		Handler:    handleFunc,
+		Middleware: middlewareFunc,
 	})
 }
 
-func (router *router) Middleware() []MiddlewareFunc {
-	return router.middleware
-}
-
-func (router *router) AddMiddleware(middleware ...MiddlewareFunc) {
-	router.middleware = append(router.middleware, middleware...)
-}
-
-func (router *router) SetMiddleware(middleware ...MiddlewareFunc) {
-	router.middleware = middleware
-}
-
-func (router *router) Path() string {
-	return router.path
-}
-
-func (router *router) SetPath(path string) {
-	router.path = path
-}
-
-func (router *router) Group(path string, groupFunc func(group Router), middleware ...MiddlewareFunc) {
+func (router *Router) Group(path string, groupFunc func(group Router), middleware ...MiddlewareFunc) {
 	group := NewRouter()
-	group.SetPath(path)
-	group.SetMiddleware(middleware...)
+	group.Path = path
 
 	groupFunc(group)
 
-	router.groups = append(router.groups, group)
-}
-
-func (router *router) Routes() []Route {
-	return router.routes
-}
-
-func (router *router) Groups() []Router {
-	return router.groups
+	router.Groups = append(router.Groups, group)
 }

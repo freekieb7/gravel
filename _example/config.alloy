@@ -1,8 +1,11 @@
-livedebugging {
-  enabled = true
+logging {
+  level  = "info"
+  format = "logfmt"
 }
 
 otelcol.receiver.otlp "default" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.receiver.otlp/
+
 	// configures the default grpc endpoint "0.0.0.0:4317"
 	grpc { }
 	// configures the default http/protobuf endpoint "0.0.0.0:4318"
@@ -16,7 +19,8 @@ otelcol.receiver.otlp "default" {
 }
 
 otelcol.processor.resourcedetection "default" {
-	detectors = ["env", "system"] // add "gcp", "ec2", "ecs", "elastic_beanstalk", "eks", "lambda", "azure", "aks", "consul", "heroku"  if you want to use cloud resource detection
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.processor.resourcedetection/
+	detectors = ["env", "docker", "system"]
 
 	system {
 		hostname_sources = ["os"]
@@ -89,6 +93,7 @@ otelcol.processor.transform "drop_unneeded_resource_attributes" {
 }
 
 otelcol.connector.host_info "default" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.connector.host_info/
 	host_identifiers = ["host.name"]
 
 	output {
@@ -97,6 +102,7 @@ otelcol.connector.host_info "default" {
 }
 
 otelcol.processor.transform "add_resource_attributes_as_metric_attributes" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.processor.transform/
 	error_mode = "ignore"
 
 	metric_statements {
@@ -113,6 +119,7 @@ otelcol.processor.transform "add_resource_attributes_as_metric_attributes" {
 }
 
 otelcol.processor.batch "default" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.processor.batch/
 	output {
 		metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
 		logs    = [otelcol.exporter.otlphttp.grafana_cloud.input]
@@ -121,13 +128,15 @@ otelcol.processor.batch "default" {
 }
 
 otelcol.exporter.otlphttp "grafana_cloud" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.exporter.otlphttp/
 	client {
-		endpoint = "https://otlp-gateway-prod-eu-west-3.grafana.net/otlp"
+		endpoint = env("GRAFANA_CLOUD_OTLP_ENDPOINT")
 		auth     = otelcol.auth.basic.grafana_cloud.handler
 	}
 }
 
 otelcol.auth.basic "grafana_cloud" {
-	username = ""
-	password = ""
-}  
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.auth.basic/
+	username = env("GRAFANA_CLOUD_INSTANCE_ID")
+	password = env("GRAFANA_CLOUD_API_KEY")
+}

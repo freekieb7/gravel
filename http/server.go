@@ -3,77 +3,95 @@ package http
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/freekieb7/gravel/telemetry"
-	"github.com/valyala/fasthttp"
 )
 
-type Server interface {
-	Router() Router
-	SetRouter(router Router)
-
-	Run(ctx context.Context) error
-	Shutdown(ctx context.Context) error
-}
-
-type server struct {
-	name        string
-	router      Router
-	otelShudown func(context.Context) error
+type Server struct {
+	Name         string
+	Router       Router
+	ShutdownFunc func(context.Context) error
 }
 
 func NewServer(name string) Server {
-	return &server{
-		name:        name,
-		router:      NewRouter(),
-		otelShudown: func(ctx context.Context) error { return nil },
+	return Server{
+		Name:         name,
+		Router:       NewRouter(),
+		ShutdownFunc: func(ctx context.Context) error { return nil },
 	}
 }
 
-func (server *server) Router() Router {
-	return server.router
-}
-
-func (server *server) SetRouter(router Router) {
-	server.router = router
-}
-
-func (server *server) Run(ctx context.Context) error {
+func (server *Server) ListenAndServe(ctx context.Context, addr string) error {
 	// Setup opentelemetry
 	otelShutdown, err := telemetry.Setup(ctx)
 	if err != nil {
 		return err
 	}
-	server.otelShudown = otelShutdown
+	server.ShutdownFunc = otelShutdown
 
 	// Setup routes
-	server.buildRoutes("", server.router)
+	routeTable := mergeRoutes(server.Router)
 
-	return fasthttp.ListenAndServe(":8080", nil)
-}
-
-func (server *server) Shutdown(ctx context.Context) error {
-	return server.otelShudown(ctx)
-}
-
-func (server *server) buildRoutes(basePath string, parentGroup Router) {
-	for _, route := range parentGroup.Routes() {
-		path := basePath + parentGroup.Path() + route.Path
-
-		routeWithMiddleware := MethodCheckMiddleware(route.Methods, RecoverMiddleware(route.Handler))
-		for _, middleware := range append(parentGroup.Middleware(), route.Middleware...) {
-			routeWithMiddleware = middleware(routeWithMiddleware)
-		}
-
-		// Serve HTTP
+	for path, routes := range routeTable {
+		// Method aware request handler
 		http.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			routeWithMiddleware.ServeHTTP(&request{r}, &response{w})
+			for _, route := range routes {
+				if !slices.Contains(route.Methods, r.Method) {
+					continue
+				}
+
+				route.Handler(&Request{r}, Response{w})
+				return
+			}
+
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		})
 	}
 
-	// Process the branching endpoints
-	for _, childGroup := range parentGroup.Groups() {
-		childGroup.SetMiddleware(append(parentGroup.Middleware(), childGroup.Middleware()...)...)
-		server.buildRoutes(basePath+parentGroup.Path(), childGroup)
+	return http.ListenAndServe(addr, nil)
+}
+
+func (server *Server) Shutdown(ctx context.Context) error {
+	return server.ShutdownFunc(ctx)
+}
+
+func mergeRoutes(router Router) map[string][]Route {
+	routeTable := make(map[string][]Route, 0)
+
+	// Add direct routes to table
+	for _, route := range router.Routes {
+		// Create new route with combined router and route configs
+		path := router.Path + route.Path
+		middlewares := append(router.Middleware, route.Middleware...)
+
+		routeTable[path] = append(routeTable[path], Route{
+			Path:       path,
+			Methods:    route.Methods,
+			Handler:    route.Handler,
+			Middleware: middlewares,
+		})
 	}
+
+	// Add indirect (sub router) routes to table
+	for _, subRouter := range router.Groups {
+		subRouterRouteTable := mergeRoutes(subRouter)
+
+		for _, routes := range subRouterRouteTable {
+			for _, route := range routes {
+				// Create new route with combined router and route configs
+				path := router.Path + route.Path
+				middleware := append(router.Middleware, route.Middleware...)
+
+				routeTable[path] = append(routeTable[path], Route{
+					Path:       path,
+					Methods:    route.Methods,
+					Handler:    route.Handler,
+					Middleware: middleware,
+				})
+			}
+		}
+	}
+
+	return routeTable
 }

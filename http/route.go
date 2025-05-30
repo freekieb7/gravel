@@ -3,6 +3,6 @@ package http
 type Route struct {
 	Methods    []string
 	Path       string
-	Handler    HandlerFunc
+	Handler    HandleFunc
 	Middleware []MiddlewareFunc
 }

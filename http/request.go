@@ -8,23 +8,16 @@ import (
 
 var ErrNoCookie = errors.New("http: named cookie not present")
 
-type Request interface {
-	Method() string
-	Cookie(name string) (Cookie, error)
-	AddCookie(cookie Cookie)
-	Context() context.Context
-}
-
-type request struct {
+type Request struct {
 	original *http.Request
 }
 
 // Method implements Request.
-func (request *request) Method() string {
+func (request *Request) Method() string {
 	return request.original.Method
 }
 
-func (request *request) AddCookie(cookie Cookie) {
+func (request *Request) AddCookie(cookie Cookie) {
 	request.original.AddCookie(
 		&http.Cookie{
 			Name:        cookie.Name,
@@ -41,7 +34,7 @@ func (request *request) AddCookie(cookie Cookie) {
 	)
 }
 
-func (request *request) Cookie(name string) (Cookie, error) {
+func (request *Request) Cookie(name string) (Cookie, error) {
 	cookie, err := request.original.Cookie(name)
 
 	if errors.Is(err, http.ErrNoCookie) {
@@ -62,6 +55,6 @@ func (request *request) Cookie(name string) (Cookie, error) {
 	}, nil
 }
 
-func (request *request) Context() context.Context {
+func (request *Request) Context() context.Context {
 	return request.original.Context()
 }

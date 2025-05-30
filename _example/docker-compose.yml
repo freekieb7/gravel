@@ -10,7 +10,13 @@ services:
       - /etc/alloy/config.alloy
       - --storage.path=/var/lib/alloy/data
       - --server.http.listen-addr=0.0.0.0:12345
-      - --stability.level=experimental # Enable all functionality
+      # - --stability.level=experimental # Enable all functionality
+    environment:
+      GRAFANA_CLOUD_OTLP_ENDPOINT: ${GRAFANA_CLOUD_OTLP_ENDPOINT}
+      GRAFANA_CLOUD_INSTANCE_ID: ${GRAFANA_CLOUD_INSTANCE_ID}
+      GRAFANA_CLOUD_API_KEY: ${GRAFANA_CLOUD_API_KEY}
     ports:
-      - "12345:12345"
       - "4317:4317"
+      - "4318:4318"
+      - "12345:12345"
+      

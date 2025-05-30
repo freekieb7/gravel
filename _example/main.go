@@ -31,8 +31,8 @@ var (
 
 func init() {
 	os.Setenv("OTEL_SERVICE_NAME", "gravel-test")
-	os.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=experimental,service.version=0.0.0")
-	os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://0.0.0.0:4317")
+	os.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.name=gravel,service.namespace=freekieb7,deployment.environment=development")
+	os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4317")
 	os.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
 
 	var err error
@@ -55,11 +55,11 @@ func run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
+	addr := "0.0.0.0:8080"
 	server := http.NewServer("gravel")
+	server.Router.Middleware = append(server.Router.Middleware, http.EnforceCookieMiddleware(), http.SessionMiddleware())
 
-	server.Router().AddMiddleware(http.EnforceCookieMiddleware, http.SessionMiddleware)
-
-	server.Router().Get("/", func(request http.Request, response http.Response) {
+	server.Router.GET("/", func(request *http.Request, response http.Response) {
 		violations := validation.ValidateMap(
 			map[string]any{
 				"title": []string{"test"},
@@ -76,20 +76,18 @@ func run(ctx context.Context) error {
 		}
 	})
 
-	server.Router().Get("/write_file", func(request http.Request, response http.Response) {
+	server.Router.GET("/write_file", func(request *http.Request, response http.Response) {
 		fs := filesystem.NewLocalFileSystem()
 		fs.CreateFile("test.md")
 	})
 
-	server.Router().Get("/roll", func(request http.Request, response http.Response) {
+	server.Router.GET("/roll", func(request *http.Request, response http.Response) {
 		ctx, span := tracer.Start(request.Context(), "roll")
 		defer span.End()
 
 		roll := 1 + rand.Intn(6)
 
-		var msg string
-
-		msg = "Anonymous player is rolling the dice"
+		msg := "Anonymous player is rolling the dice"
 		logger.InfoContext(ctx, msg, "result", roll)
 
 		rollValueAttr := attribute.Int("roll.value", roll)
@@ -100,7 +98,7 @@ func run(ctx context.Context) error {
 		response.WithText(resp)
 	})
 
-	server.Router().Get("/ticker", func(request http.Request, response http.Response) {
+	server.Router.GET("/ticker", func(request *http.Request, response http.Response) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 		defer cancel()
 
@@ -121,15 +119,16 @@ func run(ctx context.Context) error {
 		scheduler.Run(ctx)
 	})
 
-	server.Router().Group("/v1", func(group http.Router) {
-		group.Get("/", func(request http.Request, response http.Response) {
+	server.Router.Group("/v1", func(group http.Router) {
+		group.GET("/", func(request *http.Request, response http.Response) {
 			response.WithJson(`{"test": "test"}`)
-		}, exampleMiddleware)
-	}, exampleMiddleware2)
+		}, exampleFirstMiddleware())
+	}, exampleSecondMiddleware("my custom var"))
 
 	serverErrorChannel := make(chan error, 1)
 	go func() {
-		serverErrorChannel <- server.Run(ctx)
+		log.Printf("Listening and serving on: %s", addr)
+		serverErrorChannel <- server.ListenAndServe(ctx, addr)
 	}()
 
 	select {
@@ -142,16 +141,20 @@ func run(ctx context.Context) error {
 	return server.Shutdown(ctx)
 }
 
-func exampleMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(request http.Request, response http.Response) {
-		log.Print("Executing middlewareOne")
-		next.ServeHTTP(request, response)
-	})
+func exampleFirstMiddleware() http.MiddlewareFunc {
+	return func(next http.Handler) http.HandleFunc {
+		return func(request *http.Request, response http.Response) {
+			log.Print("Executing middleware 1")
+			next.ServeHTTP(request, response)
+		}
+	}
 }
 
-func exampleMiddleware2(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(request http.Request, response http.Response) {
-		log.Print("Executing middleware2")
-		next.ServeHTTP(request, response)
-	})
+func exampleSecondMiddleware(myvar string) http.MiddlewareFunc {
+	return func(next http.Handler) http.HandleFunc {
+		return func(request *http.Request, response http.Response) {
+			log.Printf("Executing middleware 2 : %s", myvar)
+			next.ServeHTTP(request, response)
+		}
+	}
 }

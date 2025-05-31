@@ -62,7 +62,7 @@ func run(ctx context.Context) error {
 	server.Router.GET("/", func(request *http.Request, response http.Response) {
 		violations := validation.ValidateMap(
 			map[string]any{
-				"title": []string{"test"},
+				"title": []string{"testasdsadfsad"},
 			},
 			map[string][]string{
 				"title": {"required", "max:255", "min:5"},

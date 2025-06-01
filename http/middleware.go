@@ -12,29 +12,29 @@ import (
 	"github.com/freekieb7/gravel/session/storage"
 )
 
-type MiddlewareFunc func(next Handler) HandleFunc
+type MiddlewareFunc func(next HandleFunc) HandleFunc
 
 func RecoverMiddleware() MiddlewareFunc {
-	return func(next Handler) HandleFunc {
-		return func(request *Request, response Response) {
+	return func(next HandleFunc) HandleFunc {
+		return func(ctx *RequestCtx) {
 			defer func() {
 				if recover := recover(); recover != nil {
 					log.Println(recover)
 
-					response.WithText("something went wrong")
+					ctx.Response.WithText("something went wrong")
 					return
 				}
 			}()
 
-			next.ServeHTTP(request, response)
+			next(ctx)
 		}
 	}
 }
 
 func EnforceCookieMiddleware() MiddlewareFunc {
-	return func(next Handler) HandleFunc {
-		return func(request *Request, response Response) {
-			_, err := request.Cookie("SID")
+	return func(next HandleFunc) HandleFunc {
+		return func(ctx *RequestCtx) {
+			_, err := ctx.Request.Cookie("SID")
 			if errors.Is(err, ErrNoCookie) {
 				rawCookieValue := make([]byte, 16)
 				rand.Read(rawCookieValue)
@@ -50,11 +50,11 @@ func EnforceCookieMiddleware() MiddlewareFunc {
 					SameSite:    SameSiteStrictMode,
 				}
 
-				request.AddCookie(cookie)
-				response.AddCookie(cookie)
+				ctx.Request.AddCookie(cookie)
+				ctx.Response.AddCookie(cookie)
 			}
 
-			next.ServeHTTP(request, response)
+			next(ctx)
 		}
 	}
 }
@@ -62,11 +62,11 @@ func EnforceCookieMiddleware() MiddlewareFunc {
 func SessionMiddleware() MiddlewareFunc {
 	sessionStore := storage.NewMemorySessionStore()
 
-	return func(next Handler) HandleFunc {
-		return func(request *Request, response Response) {
-			cookie, err := request.Cookie("SID")
+	return func(next HandleFunc) HandleFunc {
+		return func(ctx *RequestCtx) {
+			cookie, err := ctx.Request.Cookie("SID")
 			if errors.Is(err, http.ErrNoCookie) {
-				response.WithStatus(500)
+				ctx.Response.WithStatus(500)
 				return
 			}
 
@@ -82,7 +82,7 @@ func SessionMiddleware() MiddlewareFunc {
 				sess.Replace(attributes)
 			}
 
-			next.ServeHTTP(request, response)
+			next(ctx)
 
 			sessionStore.Save(sess)
 		}

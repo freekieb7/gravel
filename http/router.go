@@ -3,27 +3,23 @@ package http
 import "net/http"
 
 type Handler interface {
-	ServeHTTP(*Request, Response)
+	ServeHTTP(*RequestCtx)
 }
 
-type HandleFunc func(request *Request, response Response)
-
-func (handleFunc HandleFunc) ServeHTTP(request *Request, response Response) {
-	handleFunc(request, response)
-}
+type HandleFunc func(ctx *RequestCtx)
 
 type Router struct {
-	Path       string
-	Routes     []Route
-	Groups     []Router
+	// Path       string
+	Routes []Route
+	// Groups     []Router
 	Middleware []MiddlewareFunc
 }
 
 func NewRouter() Router {
 	return Router{
-		Path:       "",
-		Routes:     make([]Route, 0),
-		Groups:     make([]Router, 0),
+		// Path:       "",
+		Routes: make([]Route, 0),
+		// Groups:     make([]Router, 0),
 		Middleware: make([]MiddlewareFunc, 0),
 	}
 }
@@ -66,18 +62,22 @@ func (router *Router) TRACE(path string, handleFunc HandleFunc, middlewareFunc .
 
 func (router *Router) Any(methods []string, path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
 	router.Routes = append(router.Routes, Route{
-		Methods:    methods,
-		Path:       path,
-		Handler:    handleFunc,
-		Middleware: middlewareFunc,
+		Methods:        methods,
+		Path:           path,
+		HandleFunc:     handleFunc,
+		MiddlewareFunc: middlewareFunc,
 	})
 }
 
-func (router *Router) Group(path string, groupFunc func(group Router), middleware ...MiddlewareFunc) {
+func (router *Router) Group(path string, groupFunc func(group *Router), middleware ...MiddlewareFunc) {
 	group := NewRouter()
-	group.Path = path
 
-	groupFunc(group)
+	groupFunc(&group)
 
-	router.Groups = append(router.Groups, group)
+	for _, route := range group.Routes {
+		route.Path = path + route.Path
+		route.MiddlewareFunc = append(middleware, route.MiddlewareFunc...)
+
+		router.Routes = append(router.Routes, route)
+	}
 }

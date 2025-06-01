@@ -1,7 +1,17 @@
 package http
 
 import (
+	"fmt"
 	"time"
+)
+
+type SameSite int
+
+const (
+	SameSiteDefaultMode SameSite = iota + 1
+	SameSiteLaxMode
+	SameSiteStrictMode
+	SameSiteNoneMode
 )
 
 type Cookie struct {
@@ -22,11 +32,12 @@ type Cookie struct {
 	Partitioned bool
 }
 
-type SameSite int
+func (c *Cookie) String() string {
+	// todo support more
+	return fmt.Sprintf("%s=%s", c.Name, c.Value)
+}
 
-const (
-	SameSiteDefaultMode SameSite = iota + 1
-	SameSiteLaxMode
-	SameSiteStrictMode
-	SameSiteNoneMode
-)
+func (c *Cookie) Parse(data string) error {
+	// todo
+	return nil
+}

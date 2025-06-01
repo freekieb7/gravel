@@ -59,7 +59,11 @@ func run(ctx context.Context) error {
 	server := http.NewServer("gravel")
 	server.Router.Middleware = append(server.Router.Middleware, http.EnforceCookieMiddleware(), http.SessionMiddleware())
 
-	server.Router.GET("/", func(request *http.Request, response http.Response) {
+	server.Router.GET("/", func(ctx *http.RequestCtx) {
+		ctx.Response.WithJson("{\"test\": true}")
+	})
+
+	server.Router.GET("/validation", func(ctx *http.RequestCtx) {
 		violations := validation.ValidateMap(
 			map[string]any{
 				"title": []string{"testasdsadfsad"},
@@ -70,36 +74,36 @@ func run(ctx context.Context) error {
 		)
 
 		if !violations.IsEmpty() {
-			response.WithJson(violations)
+			ctx.Response.WithJson(violations)
 		} else {
-			response.WithText("ok")
+			ctx.Response.WithText("ok")
 		}
 	})
 
-	server.Router.GET("/write_file", func(request *http.Request, response http.Response) {
+	server.Router.GET("/write_file", func(ctx *http.RequestCtx) {
 		fs := filesystem.NewLocalFileSystem()
 		fs.CreateFile("test.md")
 	})
 
-	server.Router.GET("/roll", func(request *http.Request, response http.Response) {
-		ctx, span := tracer.Start(request.Context(), "roll")
+	server.Router.GET("/roll", func(ctx *http.RequestCtx) {
+		spanCtx, span := tracer.Start(context.Background(), "roll")
 		defer span.End()
 
 		roll := 1 + rand.Intn(6)
 
 		msg := "Anonymous player is rolling the dice"
-		logger.InfoContext(ctx, msg, "result", roll)
+		logger.InfoContext(spanCtx, msg, "result", roll)
 
 		rollValueAttr := attribute.Int("roll.value", roll)
 		span.SetAttributes(rollValueAttr)
-		rollCnt.Add(ctx, 1, metric.WithAttributes(rollValueAttr))
+		rollCnt.Add(spanCtx, 1, metric.WithAttributes(rollValueAttr))
 
 		resp := strconv.Itoa(roll) + "\n"
-		response.WithText(resp)
+		ctx.Response.WithText(resp)
 	})
 
-	server.Router.GET("/ticker", func(request *http.Request, response http.Response) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	server.Router.GET("/ticker", func(ctx *http.RequestCtx) {
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 		defer cancel()
 
 		task := scheduler.NewTask(
@@ -116,12 +120,12 @@ func run(ctx context.Context) error {
 		scheduler := scheduler.NewScheduler()
 		scheduler.AddJob(*job)
 
-		scheduler.Run(ctx)
+		scheduler.Run(timeoutCtx)
 	})
 
-	server.Router.Group("/v1", func(group http.Router) {
-		group.GET("/", func(request *http.Request, response http.Response) {
-			response.WithJson(`{"test": "test"}`)
+	server.Router.Group("/v1", func(group *http.Router) {
+		group.GET("/", func(ctx *http.RequestCtx) {
+			ctx.Response.WithJson(`{"test": "test"}`)
 		}, exampleFirstMiddleware())
 	}, exampleSecondMiddleware("my custom var"))
 
@@ -142,19 +146,19 @@ func run(ctx context.Context) error {
 }
 
 func exampleFirstMiddleware() http.MiddlewareFunc {
-	return func(next http.Handler) http.HandleFunc {
-		return func(request *http.Request, response http.Response) {
+	return func(next http.HandleFunc) http.HandleFunc {
+		return func(ctx *http.RequestCtx) {
 			log.Print("Executing middleware 1")
-			next.ServeHTTP(request, response)
+			next(ctx)
 		}
 	}
 }
 
 func exampleSecondMiddleware(myvar string) http.MiddlewareFunc {
-	return func(next http.Handler) http.HandleFunc {
-		return func(request *http.Request, response http.Response) {
+	return func(next http.HandleFunc) http.HandleFunc {
+		return func(ctx *http.RequestCtx) {
 			log.Printf("Executing middleware 2 : %s", myvar)
-			next.ServeHTTP(request, response)
+			next(ctx)
 		}
 	}
 }

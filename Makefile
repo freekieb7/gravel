@@ -1,0 +1,3 @@
+pprof:
+	cd http && go test -cpuprofile cpu.prof -memprofile mem.prof -bench ./...
+	go tool pprof -http localhost:8080 http/cpu.prof

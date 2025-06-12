@@ -1,40 +1,41 @@
 package http
 
-// func BenchmarkServerServe(b *testing.B) {
-// 	serverConn, clientConn := net.Pipe()
-// 	defer serverConn.Close()
-// 	defer clientConn.Close()
+import (
+	"bufio"
+	"io"
+	"net"
+	"net/http"
+	"testing"
+)
 
-// 	srv := NewServer("bench")
-// 	srv.Router.GET("/", func(ctx *RequestCtx) {
-// 		ctx.Response.WithText("OK")
-// 	})
+func BenchmarkServeConn(b *testing.B) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
 
-// 	// Start server in goroutine
-// 	go func() {
-// 		worker := NewWorker()
+	srv := NewServer("bench")
+	srv.Router.GET("/", func(ctx *RequestCtx) {
+		ctx.Response.WithText("OK")
+	})
 
-// 		go worker.Start(srv.Handlers())
-// 		for {
-// 			worker.ConnCh <- serverConn
-// 		}
-// 	}()
+	// Start ServeConn in a goroutine
+	go srv.ServeConn(serverConn)
 
-// 	reqStr := "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
-// 	reader := bufio.NewReader(clientConn)
+	reqStr := "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+	reader := bufio.NewReader(clientConn)
 
-// 	b.ResetTimer()
-// 	for b.Loop() {
-// 		// Write request
-// 		_, err := clientConn.Write([]byte(reqStr))
-// 		if err != nil {
-// 			b.Fatalf("write error: %v", err)
-// 		}
-// 		// Read response
-// 		resp, err := http.ReadResponse(reader, nil)
-// 		if err != nil {
-// 			b.Fatalf("read error: %v", err)
-// 		}
-// 		io.Copy(io.Discard, resp.Body)
-// 	}
-// }
+	for b.Loop() {
+		// Write request
+		_, err := clientConn.Write([]byte(reqStr))
+		if err != nil {
+			b.Fatalf("write error: %v", err)
+		}
+		// Read response
+		resp, err := http.ReadResponse(reader, nil)
+		if err != nil {
+			b.Fatalf("read error: %v", err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+}

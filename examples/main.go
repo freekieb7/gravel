@@ -124,7 +124,7 @@ func run(ctx context.Context) error {
 	})
 
 	server.Router.Group("/v1", func(group *http.Router) {
-		group.GET("/", func(ctx *http.RequestCtx) {
+		group.GET("/v2", func(ctx *http.RequestCtx) {
 			ctx.Response.WithJson(`{"test": "test"}`)
 		}, exampleFirstMiddleware())
 	}, exampleSecondMiddleware("my custom var"))

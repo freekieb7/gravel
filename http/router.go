@@ -9,18 +9,13 @@ type Handler interface {
 type HandleFunc func(ctx *RequestCtx)
 
 type Router struct {
-	// Path       string
-	Routes []Route
-	// Groups     []Router
+	Routes     []Route
 	Middleware []MiddlewareFunc
 }
 
 func NewRouter() Router {
 	return Router{
-		// Path:       "",
 		Routes: make([]Route, 0),
-		// Groups:     make([]Router, 0),
-		Middleware: make([]MiddlewareFunc, 0),
 	}
 }
 
@@ -61,22 +56,27 @@ func (router *Router) TRACE(path string, handleFunc HandleFunc, middlewareFunc .
 }
 
 func (router *Router) Any(methods []string, path string, handleFunc HandleFunc, middlewareFunc ...MiddlewareFunc) {
+	for _, middleware := range middlewareFunc {
+		handleFunc = middleware(handleFunc)
+	}
+
 	router.Routes = append(router.Routes, Route{
-		Methods:        methods,
-		Path:           path,
-		HandleFunc:     handleFunc,
-		MiddlewareFunc: middlewareFunc,
+		Methods:    methods,
+		Path:       path,
+		HandleFunc: handleFunc,
 	})
 }
 
-func (router *Router) Group(path string, groupFunc func(group *Router), middleware ...MiddlewareFunc) {
+func (router *Router) Group(path string, groupFunc func(group *Router), middlewareFunc ...MiddlewareFunc) {
 	group := NewRouter()
 
 	groupFunc(&group)
 
 	for _, route := range group.Routes {
 		route.Path = path + route.Path
-		route.MiddlewareFunc = append(middleware, route.MiddlewareFunc...)
+		for _, middleware := range middlewareFunc {
+			route.HandleFunc = middleware(route.HandleFunc)
+		}
 
 		router.Routes = append(router.Routes, route)
 	}

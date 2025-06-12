@@ -1,10 +1,9 @@
 package http
 
 type Route struct {
-	Methods        []string
-	Path           string
-	HandleFunc     HandleFunc
-	MiddlewareFunc []MiddlewareFunc
+	Methods    []string
+	Path       string
+	HandleFunc HandleFunc
 }
 
 var NotFoundHandleFunc HandleFunc = func(ctx *RequestCtx) {

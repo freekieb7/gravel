@@ -2,30 +2,62 @@ package http
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
-	"fmt"
-	"io"
-	"strings"
 )
 
 var ErrNoCookie = errors.New("http: named cookie not present")
 
 type Request struct {
-	Method  string
-	Path    string
-	Headers Headers
+	Method   []byte
+	Path     []byte
+	Protocol []byte
 
-	KeepAlive bool
+	HeaderNameList  [MaxRequestHeaders][]byte
+	HeaderValueList [MaxRequestHeaders][]byte
 
 	BodyRaw []byte
 }
 
-func (req *Request) AddCookie(cookie Cookie) {
-	if req.Headers["Set-Cookie"] == nil {
-		req.Headers["Set-Cookie"] = []string{}
+func (req *Request) HeaderValue(key string) ([]byte, bool) {
+headerLoop:
+	for i, headerName := range req.HeaderNameList {
+		if len(headerName) != len(key) {
+			continue
+		}
+
+		for i, kc := range key {
+			hc := headerName[i]
+
+			if kc == rune(hc) {
+				continue
+			}
+
+			// try with key as lower case
+			if kc >= 'A' && kc <= 'Z' && kc+0x20 == rune(hc) {
+				continue
+			}
+
+			// try with key as upper case
+			if kc >= 'a' && kc <= 'z' && kc-0x20 == rune(hc) {
+				continue
+			}
+
+			continue headerLoop
+		}
+
+		return req.HeaderValueList[i], true
 	}
 
-	req.Headers["Cookie"] = append(req.Headers["Cookie"], cookie.String())
+	return nil, false
+}
+
+func (req *Request) AddCookie(cookie Cookie) {
+	// if req.Headers["Set-Cookie"] == nil {
+	// 	req.Headers["Set-Cookie"] = []string{}
+	// }
+
+	// req.Headers["Cookie"] = append(req.Headers["Cookie"], cookie.String())
 }
 
 func (req *Request) Cookie(name string) (Cookie, error) {
@@ -56,59 +88,76 @@ func (req *Request) Cookie(name string) (Cookie, error) {
 	// }, nil
 }
 
-func (req *Request) Read(reader *bufio.Reader) error {
-	// Read request line
-	requestLine, err := reader.ReadString('\n')
+func (req *Request) Parse(br *bufio.Reader) error {
+	b, _, err := br.ReadLine()
 	if err != nil {
-		if err != io.EOF {
-			fmt.Println("Request read error:", err)
-		}
 		return err
 	}
-	requestLine = strings.TrimSpace(requestLine)
-	if requestLine == "" {
-		return io.EOF
-	}
-	parts := strings.Split(requestLine, " ")
-	if len(parts) < 3 {
-		return fmt.Errorf("malformed request line: %s", requestLine)
-	}
-	method, path, version := parts[0], parts[1], parts[2]
 
-	req.Method = method
-	req.Path = path
+	// parse method
+	n := bytes.IndexByte(b, ' ')
+	if n < 0 {
+		return errors.New("cannot find http request method")
+	}
+	req.Method = b[:n]
+	b = b[n+1:]
 
-	// Read headers
-	headers := make(map[string]string)
-	for {
-		line, err := reader.ReadString('\n')
+	// parse path
+	n = bytes.LastIndexByte(b, ' ')
+	if n < 0 {
+		return errors.New("cannot find http request path")
+	}
+	req.Path = b[:n]
+	b = b[n+1:]
+
+	// parse protocol
+	req.Protocol = b[:]
+
+	// // parse status
+	// var status uint16
+	// for i := 0; i < 3; i++ {
+	// 	status |= uint16(int(b[i]-'0') * (i * 10))
+	// }
+
+	// Read request line
+	// requestLine, err := reader.ReadString('\n')
+	// if err != nil {
+	// 	if err != io.EOF {
+	// 		fmt.Println("Request read error:", err)
+	// 	}
+	// 	return err
+	// }
+	// requestLine = strings.TrimSpace(requestLine)
+	// if requestLine == "" {
+	// 	return io.EOF
+	// }
+	// parts := strings.Split(requestLine, " ")
+	// if len(parts) < 3 {
+	// 	return fmt.Errorf("malformed request line: %s", requestLine)
+	// }
+	// method, path, version := parts[0], parts[1], parts[2]
+
+	// req.Method = method
+	// req.Path = path
+
+	// // Read headers
+	for i := range MaxRequestHeaders {
+		b, _, err := br.ReadLine()
 		if err != nil {
-			return fmt.Errorf("header read error: %s", err)
+			return err
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			break // end of headers
+		if len(b) == 0 {
+			break
 		}
-		if i := strings.Index(line, ":"); i >= 0 {
-			key := strings.TrimSpace(line[:i])
-			value := strings.TrimSpace(line[i+1:])
-			headers[strings.ToLower(key)] = value
+
+		cn := bytes.IndexByte(b, ' ')
+		if cn < 0 {
+			return errors.New("cannot find http request header name")
 		}
+		req.HeaderNameList[i] = b[:cn-1] // ignore colon
+
+		req.HeaderValueList[i] = b[cn+1:]
 	}
 
-	// Determine keep-alive or not
-	connHeader := strings.ToLower(headers["connection"])
-	keepAlive := false
-	if version == "HTTP/1.1" {
-		keepAlive = connHeader != "close"
-	} else if version == "HTTP/1.0" {
-		keepAlive = connHeader == "keep-alive"
-	}
-
-	req.KeepAlive = keepAlive
 	return nil
-}
-
-func (req *Request) Reset() {
-	req.BodyRaw = nil
 }

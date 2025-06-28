@@ -19,12 +19,21 @@ type Request struct {
 	BodyRaw []byte
 }
 
+func (req *Request) Reset() {
+}
+
 func (req *Request) HeaderValue(key string) ([]byte, bool) {
 headerLoop:
 	for i, headerName := range req.HeaderNameList {
+		if headerName == nil {
+			break
+		}
+
 		if len(headerName) != len(key) {
 			continue
 		}
+
+		// todo check bytes bytes.equalfold
 
 		for i, kc := range key {
 			hc := headerName[i]
@@ -113,33 +122,6 @@ func (req *Request) Parse(br *bufio.Reader) error {
 	// parse protocol
 	req.Protocol = b[:]
 
-	// // parse status
-	// var status uint16
-	// for i := 0; i < 3; i++ {
-	// 	status |= uint16(int(b[i]-'0') * (i * 10))
-	// }
-
-	// Read request line
-	// requestLine, err := reader.ReadString('\n')
-	// if err != nil {
-	// 	if err != io.EOF {
-	// 		fmt.Println("Request read error:", err)
-	// 	}
-	// 	return err
-	// }
-	// requestLine = strings.TrimSpace(requestLine)
-	// if requestLine == "" {
-	// 	return io.EOF
-	// }
-	// parts := strings.Split(requestLine, " ")
-	// if len(parts) < 3 {
-	// 	return fmt.Errorf("malformed request line: %s", requestLine)
-	// }
-	// method, path, version := parts[0], parts[1], parts[2]
-
-	// req.Method = method
-	// req.Path = path
-
 	// // Read headers
 	for i := range MaxRequestHeaders {
 		b, _, err := br.ReadLine()
@@ -147,6 +129,11 @@ func (req *Request) Parse(br *bufio.Reader) error {
 			return err
 		}
 		if len(b) == 0 {
+			if i+1 < MaxRequestHeaders {
+				req.HeaderNameList[i] = nil
+				req.HeaderValueList[i] = nil
+			}
+
 			break
 		}
 

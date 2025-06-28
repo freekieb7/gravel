@@ -4,209 +4,143 @@
 
 package http
 
-type Status uint16
-
-// HTTP status codes as registered with IANA.
-// See: https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
 const (
-	StatusContinue           Status = 100 // RFC 9110, 15.2.1
-	StatusSwitchingProtocols Status = 101 // RFC 9110, 15.2.2
-	StatusProcessing         Status = 102 // RFC 2518, 10.1
-	StatusEarlyHints         Status = 103 // RFC 8297
+	StatusContinue           uint16 = 100 // RFC 7231, 6.2.1
+	StatusSwitchingProtocols uint16 = 101 // RFC 7231, 6.2.2
+	StatusProcessing         uint16 = 102 // RFC 2518, 10.1
+	StatusEarlyHints         uint16 = 103 // RFC 8297
 
-	StatusOK                   Status = 200 // RFC 9110, 15.3.1
-	StatusCreated              Status = 201 // RFC 9110, 15.3.2
-	StatusAccepted             Status = 202 // RFC 9110, 15.3.3
-	StatusNonAuthoritativeInfo Status = 203 // RFC 9110, 15.3.4
-	StatusNoContent            Status = 204 // RFC 9110, 15.3.5
-	StatusResetContent         Status = 205 // RFC 9110, 15.3.6
-	StatusPartialContent       Status = 206 // RFC 9110, 15.3.7
-	StatusMultiStatus          Status = 207 // RFC 4918, 11.1
-	StatusAlreadyReported      Status = 208 // RFC 5842, 7.1
-	StatusIMUsed               Status = 226 // RFC 3229, 10.4.1
+	StatusOK                   uint16 = 200 // RFC 7231, 6.3.1
+	StatusCreated              uint16 = 201 // RFC 7231, 6.3.2
+	StatusAccepted             uint16 = 202 // RFC 7231, 6.3.3
+	StatusNonAuthoritativeInfo uint16 = 203 // RFC 7231, 6.3.4
+	StatusNoContent            uint16 = 204 // RFC 7231, 6.3.5
+	StatusResetContent         uint16 = 205 // RFC 7231, 6.3.6
+	StatusPartialContent       uint16 = 206 // RFC 7233, 4.1
+	StatusMultiStatus          uint16 = 207 // RFC 4918, 11.1
+	StatusAlreadyReported      uint16 = 208 // RFC 5842, 7.1
+	StatusIMUsed               uint16 = 226 // RFC 3229, 10.4.1
 
-	StatusMultipleChoices   Status = 300 // RFC 9110, 15.4.1
-	StatusMovedPermanently  Status = 301 // RFC 9110, 15.4.2
-	StatusFound             Status = 302 // RFC 9110, 15.4.3
-	StatusSeeOther          Status = 303 // RFC 9110, 15.4.4
-	StatusNotModified       Status = 304 // RFC 9110, 15.4.5
-	StatusUseProxy          Status = 305 // RFC 9110, 15.4.6
-	_                       Status = 306 // RFC 9110, 15.4.7 (Unused)
-	StatusTemporaryRedirect Status = 307 // RFC 9110, 15.4.8
-	StatusPermanentRedirect Status = 308 // RFC 9110, 15.4.9
+	StatusMultipleChoices   uint16 = 300 // RFC 7231, 6.4.1
+	StatusMovedPermanently  uint16 = 301 // RFC 7231, 6.4.2
+	StatusFound             uint16 = 302 // RFC 7231, 6.4.3
+	StatusSeeOther          uint16 = 303 // RFC 7231, 6.4.4
+	StatusNotModified       uint16 = 304 // RFC 7232, 4.1
+	StatusUseProxy          uint16 = 305 // RFC 7231, 6.4.5
+	_                       uint16 = 306 // RFC 7231, 6.4.6 (Unused)
+	StatusTemporaryRedirect uint16 = 307 // RFC 7231, 6.4.7
+	StatusPermanentRedirect uint16 = 308 // RFC 7538, 3
 
-	StatusBadRequest                   Status = 400 // RFC 9110, 15.5.1
-	StatusUnauthorized                 Status = 401 // RFC 9110, 15.5.2
-	StatusPaymentRequired              Status = 402 // RFC 9110, 15.5.3
-	StatusForbidden                    Status = 403 // RFC 9110, 15.5.4
-	StatusNotFound                     Status = 404 // RFC 9110, 15.5.5
-	StatusMethodNotAllowed             Status = 405 // RFC 9110, 15.5.6
-	StatusNotAcceptable                Status = 406 // RFC 9110, 15.5.7
-	StatusProxyAuthRequired            Status = 407 // RFC 9110, 15.5.8
-	StatusRequestTimeout               Status = 408 // RFC 9110, 15.5.9
-	StatusConflict                     Status = 409 // RFC 9110, 15.5.10
-	StatusGone                         Status = 410 // RFC 9110, 15.5.11
-	StatusLengthRequired               Status = 411 // RFC 9110, 15.5.12
-	StatusPreconditionFailed           Status = 412 // RFC 9110, 15.5.13
-	StatusRequestEntityTooLarge        Status = 413 // RFC 9110, 15.5.14
-	StatusRequestURITooLong            Status = 414 // RFC 9110, 15.5.15
-	StatusUnsupportedMediaType         Status = 415 // RFC 9110, 15.5.16
-	StatusRequestedRangeNotSatisfiable Status = 416 // RFC 9110, 15.5.17
-	StatusExpectationFailed            Status = 417 // RFC 9110, 15.5.18
-	StatusTeapot                       Status = 418 // RFC 9110, 15.5.19 (Unused)
-	StatusMisdirectedRequest           Status = 421 // RFC 9110, 15.5.20
-	StatusUnprocessableEntity          Status = 422 // RFC 9110, 15.5.21
-	StatusLocked                       Status = 423 // RFC 4918, 11.3
-	StatusFailedDependency             Status = 424 // RFC 4918, 11.4
-	StatusTooEarly                     Status = 425 // RFC 8470, 5.2.
-	StatusUpgradeRequired              Status = 426 // RFC 9110, 15.5.22
-	StatusPreconditionRequired         Status = 428 // RFC 6585, 3
-	StatusTooManyRequests              Status = 429 // RFC 6585, 4
-	StatusRequestHeaderFieldsTooLarge  Status = 431 // RFC 6585, 5
-	StatusUnavailableForLegalReasons   Status = 451 // RFC 7725, 3
+	StatusBadRequest                   uint16 = 400 // RFC 7231, 6.5.1
+	StatusUnauthorized                 uint16 = 401 // RFC 7235, 3.1
+	StatusPaymentRequired              uint16 = 402 // RFC 7231, 6.5.2
+	StatusForbidden                    uint16 = 403 // RFC 7231, 6.5.3
+	StatusNotFound                     uint16 = 404 // RFC 7231, 6.5.4
+	StatusMethodNotAllowed             uint16 = 405 // RFC 7231, 6.5.5
+	StatusNotAcceptable                uint16 = 406 // RFC 7231, 6.5.6
+	StatusProxyAuthRequired            uint16 = 407 // RFC 7235, 3.2
+	StatusRequestTimeout               uint16 = 408 // RFC 7231, 6.5.7
+	StatusConflict                     uint16 = 409 // RFC 7231, 6.5.8
+	StatusGone                         uint16 = 410 // RFC 7231, 6.5.9
+	StatusLengthRequired               uint16 = 411 // RFC 7231, 6.5.10
+	StatusPreconditionFailed           uint16 = 412 // RFC 7232, 4.2
+	StatusRequestEntityTooLarge        uint16 = 413 // RFC 7231, 6.5.11
+	StatusRequestURITooLong            uint16 = 414 // RFC 7231, 6.5.12
+	StatusUnsupportedMediaType         uint16 = 415 // RFC 7231, 6.5.13
+	StatusRequestedRangeNotSatisfiable uint16 = 416 // RFC 7233, 4.4
+	StatusExpectationFailed            uint16 = 417 // RFC 7231, 6.5.14
+	StatusTeapot                       uint16 = 418 // RFC 7168, 2.3.3
+	StatusMisdirectedRequest           uint16 = 421 // RFC 7540, 9.1.2
+	StatusUnprocessableEntity          uint16 = 422 // RFC 4918, 11.2
+	StatusLocked                       uint16 = 423 // RFC 4918, 11.3
+	StatusFailedDependency             uint16 = 424 // RFC 4918, 11.4
+	StatusUpgradeRequired              uint16 = 426 // RFC 7231, 6.5.15
+	StatusPreconditionRequired         uint16 = 428 // RFC 6585, 3
+	StatusTooManyRequests              uint16 = 429 // RFC 6585, 4
+	StatusRequestHeaderFieldsTooLarge  uint16 = 431 // RFC 6585, 5
+	StatusUnavailableForLegalReasons   uint16 = 451 // RFC 7725, 3
 
-	StatusInternalServerError           Status = 500 // RFC 9110, 15.6.1
-	StatusNotImplemented                Status = 501 // RFC 9110, 15.6.2
-	StatusBadGateway                    Status = 502 // RFC 9110, 15.6.3
-	StatusServiceUnavailable            Status = 503 // RFC 9110, 15.6.4
-	StatusGatewayTimeout                Status = 504 // RFC 9110, 15.6.5
-	StatusHTTPVersionNotSupported       Status = 505 // RFC 9110, 15.6.6
-	StatusVariantAlsoNegotiates         Status = 506 // RFC 2295, 8.1
-	StatusInsufficientStorage           Status = 507 // RFC 4918, 11.5
-	StatusLoopDetected                  Status = 508 // RFC 5842, 7.2
-	StatusNotExtended                   Status = 510 // RFC 2774, 7
-	StatusNetworkAuthenticationRequired Status = 511 // RFC 6585, 6
+	StatusInternalServerError           uint16 = 500 // RFC 7231, 6.6.1
+	StatusNotImplemented                uint16 = 501 // RFC 7231, 6.6.2
+	StatusBadGateway                    uint16 = 502 // RFC 7231, 6.6.3
+	StatusServiceUnavailable            uint16 = 503 // RFC 7231, 6.6.4
+	StatusGatewayTimeout                uint16 = 504 // RFC 7231, 6.6.5
+	StatusHTTPVersionNotSupported       uint16 = 505 // RFC 7231, 6.6.6
+	StatusVariantAlsoNegotiates         uint16 = 506 // RFC 2295, 8.1
+	StatusInsufficientStorage           uint16 = 507 // RFC 4918, 11.5
+	StatusLoopDetected                  uint16 = 508 // RFC 5842, 7.2
+	StatusNotExtended                   uint16 = 510 // RFC 2774, 7
+	StatusNetworkAuthenticationRequired uint16 = 511 // RFC 6585, 6
 )
 
-// StatusText returns a text for the HTTP status code. It returns the empty
-// string if the code is unknown.
-func (code Status) AsText() string {
-	switch code {
-	case StatusContinue:
-		return "Continue"
-	case StatusSwitchingProtocols:
-		return "Switching Protocols"
-	case StatusProcessing:
-		return "Processing"
-	case StatusEarlyHints:
-		return "Early Hints"
-	case StatusOK:
-		return "OK"
-	case StatusCreated:
-		return "Created"
-	case StatusAccepted:
-		return "Accepted"
-	case StatusNonAuthoritativeInfo:
-		return "Non-Authoritative Information"
-	case StatusNoContent:
-		return "No Content"
-	case StatusResetContent:
-		return "Reset Content"
-	case StatusPartialContent:
-		return "Partial Content"
-	case StatusMultiStatus:
-		return "Multi-Status"
-	case StatusAlreadyReported:
-		return "Already Reported"
-	case StatusIMUsed:
-		return "IM Used"
-	case StatusMultipleChoices:
-		return "Multiple Choices"
-	case StatusMovedPermanently:
-		return "Moved Permanently"
-	case StatusFound:
-		return "Found"
-	case StatusSeeOther:
-		return "See Other"
-	case StatusNotModified:
-		return "Not Modified"
-	case StatusUseProxy:
-		return "Use Proxy"
-	case StatusTemporaryRedirect:
-		return "Temporary Redirect"
-	case StatusPermanentRedirect:
-		return "Permanent Redirect"
-	case StatusBadRequest:
-		return "Bad Request"
-	case StatusUnauthorized:
-		return "Unauthorized"
-	case StatusPaymentRequired:
-		return "Payment Required"
-	case StatusForbidden:
-		return "Forbidden"
-	case StatusNotFound:
-		return "Not Found"
-	case StatusMethodNotAllowed:
-		return "Method Not Allowed"
-	case StatusNotAcceptable:
-		return "Not Acceptable"
-	case StatusProxyAuthRequired:
-		return "Proxy Authentication Required"
-	case StatusRequestTimeout:
-		return "Request Timeout"
-	case StatusConflict:
-		return "Conflict"
-	case StatusGone:
-		return "Gone"
-	case StatusLengthRequired:
-		return "Length Required"
-	case StatusPreconditionFailed:
-		return "Precondition Failed"
-	case StatusRequestEntityTooLarge:
-		return "Request Entity Too Large"
-	case StatusRequestURITooLong:
-		return "Request URI Too Long"
-	case StatusUnsupportedMediaType:
-		return "Unsupported Media Type"
-	case StatusRequestedRangeNotSatisfiable:
-		return "Requested Range Not Satisfiable"
-	case StatusExpectationFailed:
-		return "Expectation Failed"
-	case StatusTeapot:
-		return "I'm a teapot"
-	case StatusMisdirectedRequest:
-		return "Misdirected Request"
-	case StatusUnprocessableEntity:
-		return "Unprocessable Entity"
-	case StatusLocked:
-		return "Locked"
-	case StatusFailedDependency:
-		return "Failed Dependency"
-	case StatusTooEarly:
-		return "Too Early"
-	case StatusUpgradeRequired:
-		return "Upgrade Required"
-	case StatusPreconditionRequired:
-		return "Precondition Required"
-	case StatusTooManyRequests:
-		return "Too Many Requests"
-	case StatusRequestHeaderFieldsTooLarge:
-		return "Request Header Fields Too Large"
-	case StatusUnavailableForLegalReasons:
-		return "Unavailable For Legal Reasons"
-	case StatusInternalServerError:
-		return "Internal Server Error"
-	case StatusNotImplemented:
-		return "Not Implemented"
-	case StatusBadGateway:
-		return "Bad Gateway"
-	case StatusServiceUnavailable:
-		return "Service Unavailable"
-	case StatusGatewayTimeout:
-		return "Gateway Timeout"
-	case StatusHTTPVersionNotSupported:
-		return "HTTP Version Not Supported"
-	case StatusVariantAlsoNegotiates:
-		return "Variant Also Negotiates"
-	case StatusInsufficientStorage:
-		return "Insufficient Storage"
-	case StatusLoopDetected:
-		return "Loop Detected"
-	case StatusNotExtended:
-		return "Not Extended"
-	case StatusNetworkAuthenticationRequired:
-		return "Network Authentication Required"
-	default:
-		return ""
+var (
+	unknownStatusCode = "Unknown Status Code"
+
+	statusMessages = []string{
+		StatusContinue:           "Continue",
+		StatusSwitchingProtocols: "Switching Protocols",
+		StatusProcessing:         "Processing",
+		StatusEarlyHints:         "Early Hints",
+
+		StatusOK:                   "OK",
+		StatusCreated:              "Created",
+		StatusAccepted:             "Accepted",
+		StatusNonAuthoritativeInfo: "Non-Authoritative Information",
+		StatusNoContent:            "No Content",
+		StatusResetContent:         "Reset Content",
+		StatusPartialContent:       "Partial Content",
+		StatusMultiStatus:          "Multi-Status",
+		StatusAlreadyReported:      "Already Reported",
+		StatusIMUsed:               "IM Used",
+
+		StatusMultipleChoices:   "Multiple Choices",
+		StatusMovedPermanently:  "Moved Permanently",
+		StatusFound:             "Found",
+		StatusSeeOther:          "See Other",
+		StatusNotModified:       "Not Modified",
+		StatusUseProxy:          "Use Proxy",
+		StatusTemporaryRedirect: "Temporary Redirect",
+		StatusPermanentRedirect: "Permanent Redirect",
+
+		StatusBadRequest:                   "Bad Request",
+		StatusUnauthorized:                 "Unauthorized",
+		StatusPaymentRequired:              "Payment Required",
+		StatusForbidden:                    "Forbidden",
+		StatusNotFound:                     "Not Found",
+		StatusMethodNotAllowed:             "Method Not Allowed",
+		StatusNotAcceptable:                "Not Acceptable",
+		StatusProxyAuthRequired:            "Proxy Authentication Required",
+		StatusRequestTimeout:               "Request Timeout",
+		StatusConflict:                     "Conflict",
+		StatusGone:                         "Gone",
+		StatusLengthRequired:               "Length Required",
+		StatusPreconditionFailed:           "Precondition Failed",
+		StatusRequestEntityTooLarge:        "Request Entity Too Large",
+		StatusRequestURITooLong:            "Request URI Too Long",
+		StatusUnsupportedMediaType:         "Unsupported Media Type",
+		StatusRequestedRangeNotSatisfiable: "Requested Range Not Satisfiable",
+		StatusExpectationFailed:            "Expectation Failed",
+		StatusTeapot:                       "I'm a teapot",
+		StatusMisdirectedRequest:           "Misdirected Request",
+		StatusUnprocessableEntity:          "Unprocessable Entity",
+		StatusLocked:                       "Locked",
+		StatusFailedDependency:             "Failed Dependency",
+		StatusUpgradeRequired:              "Upgrade Required",
+		StatusPreconditionRequired:         "Precondition Required",
+		StatusTooManyRequests:              "Too Many Requests",
+		StatusRequestHeaderFieldsTooLarge:  "Request Header Fields Too Large",
+		StatusUnavailableForLegalReasons:   "Unavailable For Legal Reasons",
+
+		StatusInternalServerError:           "Internal Server Error",
+		StatusNotImplemented:                "Not Implemented",
+		StatusBadGateway:                    "Bad Gateway",
+		StatusServiceUnavailable:            "Service Unavailable",
+		StatusGatewayTimeout:                "Gateway Timeout",
+		StatusHTTPVersionNotSupported:       "HTTP Version Not Supported",
+		StatusVariantAlsoNegotiates:         "Variant Also Negotiates",
+		StatusInsufficientStorage:           "Insufficient Storage",
+		StatusLoopDetected:                  "Loop Detected",
+		StatusNotExtended:                   "Not Extended",
+		StatusNetworkAuthenticationRequired: "Network Authentication Required",
 	}
-}
+)

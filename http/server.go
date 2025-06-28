@@ -1,44 +1,54 @@
 package http
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"math"
 	"net"
-	"sync"
 	"time"
 )
 
 const (
 	MaxRequestSize          = 2 * 1024 * 1024 // 2MB
+	MaxResponseSize         = 2 * 1024 * 1024 // 2MB
 	DefaultBufferReaderSize = 2 * 1024 * 2    // 4kB
 	DefaultReadBufferSize   = 4096            // 4kB
 	DefaultWriteBufferSize  = 4096            // 4kB
 	MaxRequestHeaders       = math.MaxUint8
+	MaxResponseHeaders      = math.MaxUint8
 )
+
+var (
+	Http11                = []byte("HTTP/1.1")
+	headerConnection      = []byte("Connection")
+	headerKeepAlive       = []byte("keep-alive")
+	headerClose           = []byte("close")
+	headerContentType     = []byte("Content-Type")
+	headerApplicationJSON = []byte("application/json")
+	// ...add others as needed
+)
+
+const DefaultConcurrency uint64 = 256 * 1024
 
 type Server struct {
 	Name         string
-	Router       Router
+	Handler      Handler
 	ShutdownFunc func(context.Context) error
-
-	RequestCtxPool sync.Pool
+	WorkerPool   WorkerPool
 }
 
-func NewServer(name string) Server {
+func NewServer(name string, handler Handler, concurrency uint64) Server {
 	return Server{
 		Name:         name,
-		Router:       NewRouter(),
+		Handler:      handler,
 		ShutdownFunc: func(ctx context.Context) error { return nil },
-
-		RequestCtxPool: sync.Pool{},
+		WorkerPool:   NewWorkerPool(handler, concurrency),
 	}
 }
 
-func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+func (s *Server) ListenAndServe(addr string) error {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -51,32 +61,42 @@ func (s *Server) Serve(listener net.Listener) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Printf("Failed to accept connection %v", err)
-			continue
+			if err == io.EOF {
+				return nil
+			}
+			return err
 
 		}
 
-		go s.ServeConn(conn) // scale up to n workers
+		go s.ServeConn(conn)
 	}
 }
 
-func (s *Server) ServeConn(conn net.Conn) {
+func (s *Server) ServeConn(conn net.Conn) error {
 	defer conn.Close()
 
-	br := bufio.NewReaderSize(conn, DefaultReadBufferSize)
-	bw := bufio.NewWriterSize(conn, DefaultWriteBufferSize)
-
-	reqCtx := RequestCtx{
-		Request: Request{},
-		Response: Response{
-			Status:  200,
-			Headers: Headers{},
-			Body:    make([]byte, 0),
-		},
-	}
-
+	// Search for available worker
+	var reqCtx *RequestCtx
+	var err error
 	for {
-		err := reqCtx.Request.Parse(br)
+		reqCtx, err = s.WorkerPool.Ready.Dequeue()
+		if err != nil {
+			if err == ErrEmpty {
+				time.Sleep(10 * time.Nanosecond)
+				continue
+				// todo max attempts
+			}
+
+			panic(err)
+		}
+
+		break
+	}
+	defer s.WorkerPool.Ready.Enqueue(reqCtx)
+
+	reqCtx.Reset(conn)
+	for {
+		err := reqCtx.Request.Parse(reqCtx.ConnReader)
 		if err != nil {
 			if err != io.EOF {
 				fmt.Print(err)
@@ -84,48 +104,36 @@ func (s *Server) ServeConn(conn net.Conn) {
 			break
 		}
 
-		handleFunc := NotFoundHandleFunc
-		for _, route := range s.Router.Routes {
-			if route.Path != string(reqCtx.Request.Path) {
-				continue
-			}
+		s.Handler(reqCtx)
 
-			for _, method := range route.Methods {
-				if method != string(reqCtx.Request.Method) {
-					continue
-				}
-
-				handleFunc = route.HandleFunc
-				break
-			}
-		}
-
-		handleFunc(&reqCtx)
-
+		// Manage keep alive
 		var keepAlive bool
 		v, found := reqCtx.Request.HeaderValue("Connection")
 		if found {
-			keepAlive = bytes.Equal(v, []byte("keep-alive"))
+			keepAlive = bytes.Equal(v, headerKeepAlive)
 		} else {
-			keepAlive = bytes.Equal(reqCtx.Request.Protocol, []byte("HTTP/1.1"))
+			keepAlive = bytes.Equal(reqCtx.Request.Protocol, Http11)
 		}
 
 		if keepAlive {
-			reqCtx.Response.Headers["Connection"] = []string{"keep-alive"}
+			reqCtx.Response.SetHeader(headerConnection, headerKeepAlive)
 		} else {
-			reqCtx.Response.Headers["Connection"] = []string{"close"}
+			reqCtx.Response.SetHeader(headerConnection, headerClose)
 		}
 
-		if err := reqCtx.Response.Write(bw); err != nil {
+		if err := reqCtx.Response.Write(reqCtx.ConnWriter); err != nil {
 			break
 		}
 
+		// Kill if keep alive is not re
 		if !keepAlive {
 			break
 		}
 
-		conn.SetDeadline(time.Now().Add(time.Second * 5))
+		// conn.SetDeadline(time.Now().Add(time.Second * 5))
 	}
+
+	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {

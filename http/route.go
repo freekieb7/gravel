@@ -1,11 +1,11 @@
 package http
 
 type Route struct {
-	Methods    []string
-	Path       string
-	HandleFunc HandleFunc
+	Methods []string
+	Path    string
+	Handler Handler
 }
 
-var NotFoundHandleFunc HandleFunc = func(ctx *RequestCtx) {
+var NotFoundHandler Handler = func(ctx *RequestCtx) {
 	ctx.Response.WithStatus(StatusNotFound)
 }

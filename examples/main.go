@@ -55,15 +55,14 @@ func run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	addr := "0.0.0.0:8080"
-	server := http.NewServer("gravel")
-	server.Router.Middleware = append(server.Router.Middleware, http.EnforceCookieMiddleware(), http.SessionMiddleware())
+	router := http.NewRouter()
+	router.Middleware = append(router.Middleware, http.EnforceCookieMiddleware(), http.SessionMiddleware())
 
-	server.Router.GET("/", func(ctx *http.RequestCtx) {
+	router.GET("/", func(ctx *http.RequestCtx) {
 		ctx.Response.WithJson("{\"test\": true}")
 	})
 
-	server.Router.GET("/validation", func(ctx *http.RequestCtx) {
+	router.GET("/validation", func(ctx *http.RequestCtx) {
 		violations := validation.ValidateMap(
 			map[string]any{
 				"title": []string{"testasdsadfsad"},
@@ -80,12 +79,12 @@ func run(ctx context.Context) error {
 		}
 	})
 
-	server.Router.GET("/write_file", func(ctx *http.RequestCtx) {
+	router.GET("/write_file", func(ctx *http.RequestCtx) {
 		fs := filesystem.NewLocalFileSystem()
 		fs.CreateFile("test.md")
 	})
 
-	server.Router.GET("/roll", func(ctx *http.RequestCtx) {
+	router.GET("/roll", func(ctx *http.RequestCtx) {
 		spanCtx, span := tracer.Start(context.Background(), "roll")
 		defer span.End()
 
@@ -102,7 +101,7 @@ func run(ctx context.Context) error {
 		ctx.Response.WithText(resp)
 	})
 
-	server.Router.GET("/ticker", func(ctx *http.RequestCtx) {
+	router.GET("/ticker", func(ctx *http.RequestCtx) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 		defer cancel()
 
@@ -123,16 +122,20 @@ func run(ctx context.Context) error {
 		scheduler.Run(timeoutCtx)
 	})
 
-	server.Router.Group("/v1", func(group *http.Router) {
+	router.Group("/v1", func(group *http.Router) {
 		group.GET("/v2", func(ctx *http.RequestCtx) {
 			ctx.Response.WithJson(`{"test": "test"}`)
 		}, exampleFirstMiddleware())
 	}, exampleSecondMiddleware("my custom var"))
 
 	serverErrorChannel := make(chan error, 1)
+
+	addr := "0.0.0.0:8080"
+	server := http.NewServer("gravel", router.Handler(), 2*8)
+
 	go func() {
 		log.Printf("Listening and serving on: %s", addr)
-		serverErrorChannel <- server.ListenAndServe(ctx, addr)
+		serverErrorChannel <- server.ListenAndServe(addr)
 	}()
 
 	select {
@@ -145,8 +148,8 @@ func run(ctx context.Context) error {
 	return server.Shutdown(ctx)
 }
 
-func exampleFirstMiddleware() http.MiddlewareFunc {
-	return func(next http.HandleFunc) http.HandleFunc {
+func exampleFirstMiddleware() http.Middleware {
+	return func(next http.Handler) http.Handler {
 		return func(ctx *http.RequestCtx) {
 			log.Print("Executing middleware 1")
 			next(ctx)
@@ -154,8 +157,8 @@ func exampleFirstMiddleware() http.MiddlewareFunc {
 	}
 }
 
-func exampleSecondMiddleware(myvar string) http.MiddlewareFunc {
-	return func(next http.HandleFunc) http.HandleFunc {
+func exampleSecondMiddleware(myvar string) http.Middleware {
+	return func(next http.Handler) http.Handler {
 		return func(ctx *http.RequestCtx) {
 			log.Printf("Executing middleware 2 : %s", myvar)
 			next(ctx)

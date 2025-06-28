@@ -12,10 +12,10 @@ import (
 	"github.com/freekieb7/gravel/session/storage"
 )
 
-type MiddlewareFunc func(next HandleFunc) HandleFunc
+type Middleware func(next Handler) Handler
 
-func RecoverMiddleware() MiddlewareFunc {
-	return func(next HandleFunc) HandleFunc {
+func RecoverMiddleware() Middleware {
+	return func(next Handler) Handler {
 		return func(ctx *RequestCtx) {
 			defer func() {
 				if recover := recover(); recover != nil {
@@ -31,8 +31,8 @@ func RecoverMiddleware() MiddlewareFunc {
 	}
 }
 
-func EnforceCookieMiddleware() MiddlewareFunc {
-	return func(next HandleFunc) HandleFunc {
+func EnforceCookieMiddleware() Middleware {
+	return func(next Handler) Handler {
 		return func(ctx *RequestCtx) {
 			_, err := ctx.Request.Cookie("SID")
 			if errors.Is(err, ErrNoCookie) {
@@ -59,10 +59,10 @@ func EnforceCookieMiddleware() MiddlewareFunc {
 	}
 }
 
-func SessionMiddleware() MiddlewareFunc {
+func SessionMiddleware() Middleware {
 	sessionStore := storage.NewMemorySessionStore()
 
-	return func(next HandleFunc) HandleFunc {
+	return func(next Handler) Handler {
 		return func(ctx *RequestCtx) {
 			cookie, err := ctx.Request.Cookie("SID")
 			if errors.Is(err, http.ErrNoCookie) {

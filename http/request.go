@@ -17,47 +17,51 @@ type Request struct {
 	HeaderValueList [MaxRequestHeaders][]byte
 
 	BodyRaw []byte
+
+	lowerKey [64]byte // adjust size as needed
+
 }
 
 func (req *Request) Reset() {
 }
 
-func (req *Request) HeaderValue(key string) ([]byte, bool) {
-headerLoop:
-	for i, headerName := range req.HeaderNameList {
+func (req *Request) HeaderValue(key []byte) ([]byte, bool) {
+	if len(key) == 0 {
+		return nil, false
+	}
+	if len(key) > len(req.lowerKey) {
+		return nil, false // key too long
+	}
+	for i := range key {
+		c := key[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		req.lowerKey[i] = c
+	}
+	lookup := req.lowerKey[:len(key)]
+
+	// Use HeaderCount if you add it, else keep nil check
+	for i := 0; i < MaxRequestHeaders; i++ {
+		headerName := req.HeaderNameList[i]
 		if headerName == nil {
 			break
 		}
-
-		if len(headerName) != len(key) {
+		if len(headerName) != len(lookup) {
 			continue
 		}
-
-		// todo check bytes bytes.equalfold
-
-		for i, kc := range key {
-			hc := headerName[i]
-
-			if kc == rune(hc) {
-				continue
+		// Inline comparison
+		eq := true
+		for j := range lookup {
+			if headerName[j] != lookup[j] {
+				eq = false
+				break
 			}
-
-			// try with key as lower case
-			if kc >= 'A' && kc <= 'Z' && kc+0x20 == rune(hc) {
-				continue
-			}
-
-			// try with key as upper case
-			if kc >= 'a' && kc <= 'z' && kc-0x20 == rune(hc) {
-				continue
-			}
-
-			continue headerLoop
 		}
-
-		return req.HeaderValueList[i], true
+		if eq {
+			return req.HeaderValueList[i], true
+		}
 	}
-
 	return nil, false
 }
 
@@ -133,7 +137,6 @@ func (req *Request) Parse(br *bufio.Reader) error {
 				req.HeaderNameList[i] = nil
 				req.HeaderValueList[i] = nil
 			}
-
 			break
 		}
 
@@ -141,8 +144,14 @@ func (req *Request) Parse(br *bufio.Reader) error {
 		if cn < 0 {
 			return errors.New("cannot find http request header name")
 		}
-		req.HeaderNameList[i] = b[:cn-1] // ignore colon
-
+		// Lower-case header name in-place (ASCII only, zero alloc)
+		name := b[:cn-1]
+		for j := range name {
+			if name[j] >= 'A' && name[j] <= 'Z' {
+				name[j] += 'a' - 'A'
+			}
+		}
+		req.HeaderNameList[i] = name
 		req.HeaderValueList[i] = b[cn+1:]
 	}
 

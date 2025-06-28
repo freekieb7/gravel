@@ -334,7 +334,7 @@ func benchmarkServerGet(b *testing.B, clientsCount, requestsPerConn int) {
 		// 	ctx.SetConnectionClose()
 		// }
 		registerServedRequest(b, ch)
-	}, 1024)
+	})
 	benchmarkServer(b, &s, clientsCount, requestsPerConn, getRequest)
 	verifyRequestsServed(b, ch)
 }
@@ -440,8 +440,6 @@ type realServer interface {
 }
 
 func benchmarkServer(b *testing.B, s realServer, clientsCount, requestsPerConn int, request string) {
-	b.ReportAllocs()
-
 	ln := newFakeListener(b.N, clientsCount, requestsPerConn, request)
 	ch := make(chan struct{})
 	go func() {

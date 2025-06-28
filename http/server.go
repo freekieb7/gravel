@@ -18,6 +18,7 @@ const (
 	DefaultWriteBufferSize  = 4096            // 4kB
 	MaxRequestHeaders       = math.MaxUint8
 	MaxResponseHeaders      = math.MaxUint8
+	WorkerPoolSize          = 1024 // must be power of 2
 )
 
 var (
@@ -30,22 +31,27 @@ var (
 	// ...add others as needed
 )
 
-const DefaultConcurrency uint64 = 256 * 1024
-
 type Server struct {
 	Name         string
 	Handler      Handler
 	ShutdownFunc func(context.Context) error
 	WorkerPool   WorkerPool
+	connCh       chan net.Conn
 }
 
-func NewServer(name string, handler Handler, concurrency uint64) Server {
-	return Server{
+func NewServer(name string, handler Handler) Server {
+	s := Server{
 		Name:         name,
 		Handler:      handler,
 		ShutdownFunc: func(ctx context.Context) error { return nil },
-		WorkerPool:   NewWorkerPool(handler, concurrency),
+		WorkerPool:   NewWorkerPool(handler),
+		connCh:       make(chan net.Conn, WorkerPoolSize),
 	}
+	// Start workers
+	for range WorkerPoolSize {
+		go s.worker()
+	}
+	return s
 }
 
 func (s *Server) ListenAndServe(addr string) error {
@@ -61,14 +67,37 @@ func (s *Server) Serve(listener net.Listener) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			// Handle listener closure gracefully
+			if _, ok := err.(net.Error); ok {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
 			if err == io.EOF {
 				return nil
 			}
+			// Optionally log the error here
 			return err
-
 		}
 
-		go s.ServeConn(conn)
+		// Optionally set a deadline on the connection
+		// conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+		// Non-blocking send to worker pool, close conn if full
+		select {
+		case s.connCh <- conn:
+			// Successfully dispatched to worker
+		default:
+			// All workers are busy, reject connection
+			conn.Close()
+			// Optionally log: "connection dropped: worker pool full"
+		}
+	}
+}
+
+// Worker goroutine
+func (s *Server) worker() {
+	for conn := range s.connCh {
+		s.ServeConn(conn)
 	}
 }
 
@@ -108,7 +137,7 @@ func (s *Server) ServeConn(conn net.Conn) error {
 
 		// Manage keep alive
 		var keepAlive bool
-		v, found := reqCtx.Request.HeaderValue("Connection")
+		v, found := reqCtx.Request.HeaderValue(headerConnection)
 		if found {
 			keepAlive = bytes.Equal(v, headerKeepAlive)
 		} else {

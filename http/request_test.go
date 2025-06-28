@@ -17,7 +17,7 @@ func TestRequestParse(t *testing.T) {
 		t.Error(err)
 	}
 
-	h, found := req.HeaderValue("connection")
+	h, found := req.HeaderValue([]byte("connection"))
 	if !found {
 		t.Error("connection header not found")
 	}

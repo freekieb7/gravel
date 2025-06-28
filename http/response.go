@@ -7,12 +7,12 @@ import (
 	"strconv"
 )
 
-type Headers map[string][]string
-
 type Response struct {
 	Status          uint16
-	HeaderNameList  [MaxResponseHeaders][]byte
+	HeaderNameList  [MaxResponseHeaders][64]byte
+	HeaderNameLens  [MaxResponseHeaders]int
 	HeaderValueList [MaxResponseHeaders][]byte
+	HeaderCount     int
 	Body            []byte
 
 	statusBuf [3]byte
@@ -21,12 +21,12 @@ type Response struct {
 
 func (res *Response) Reset() {
 	res.Status = 200
-	// res.HeaderNameList = [MaxResponseHeaders][]byte{}
+	res.HeaderCount = 0
 	res.Body = nil
 }
 
 func (res *Response) AddCookie(cookie Cookie) {
-	res.SetHeader([]byte("Set-Cookie"), []byte(cookie.String()))
+	res.SetHeader([]byte("set-cookie"), []byte(cookie.String()))
 }
 
 func (res *Response) WithStatus(status uint16) *Response {
@@ -35,52 +35,81 @@ func (res *Response) WithStatus(status uint16) *Response {
 }
 
 func (res *Response) WithJson(payload any) *Response {
-	res.SetHeader([]byte("Content-Type"), []byte("application/json"))
+	res.SetHeader([]byte("content-type"), []byte("application/json"))
 
 	switch p := payload.(type) {
 	case string:
-		{
-			res.Body = []byte(p)
-		}
+		res.Body = []byte(p)
 	case []byte:
-		{
-			res.Body = p
-		}
+		res.Body = p
 	default:
-		{
-			data, _ := json.Marshal(p)
-			res.Body = data
-		}
+		data, _ := json.Marshal(p)
+		res.Body = data
 	}
 
 	return res
 }
 
 func (res *Response) WithText(payload string) *Response {
-	res.SetHeader([]byte("Content-Type"), []byte(payload))
+	res.SetHeader([]byte("content-type"), []byte(payload))
 	res.Body = []byte(payload)
 	return res
 }
 
+// Optimized SetHeader: lower-case key, scan only up to HeaderCount, no EqualFold
 func (res *Response) SetHeader(key, value []byte) {
-	for i, headerName := range res.HeaderNameList {
-		if len(headerName) == 0 || bytes.EqualFold(headerName, key) {
-			res.HeaderNameList[i] = key
+	n := len(key)
+	if n > 64 {
+		n = 64
+	}
+	var lowerKey [64]byte
+	for i := 0; i < n; i++ {
+		c := key[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		lowerKey[i] = c
+	}
+	lookup := lowerKey[:n]
+
+	for i := 0; i < res.HeaderCount; i++ {
+		headerName := res.HeaderNameList[i][:res.HeaderNameLens[i]]
+		if len(headerName) != n {
+			continue
+		}
+		eq := true
+		for j := 0; j < n; j++ {
+			if headerName[j] != lookup[j] {
+				eq = false
+				break
+			}
+		}
+		if eq {
 			res.HeaderValueList[i] = value
 			return
 		}
+	}
+	if res.HeaderCount < MaxResponseHeaders {
+		copy(res.HeaderNameList[res.HeaderCount][:], lookup)
+		res.HeaderNameLens[res.HeaderCount] = n
+		res.HeaderValueList[res.HeaderCount] = value
+		res.HeaderCount++
 	}
 }
 
 func (res *Response) AddHeader(key, value []byte) {
 	for i, headerName := range res.HeaderNameList {
 		if len(headerName) == 0 {
-			res.HeaderNameList[i] = key
+			n := len(key)
+			if n > 64 {
+				n = 64
+			}
+			copy(res.HeaderNameList[i][:], key[:n])
+			res.HeaderNameLens[i] = n
 			res.HeaderValueList[i] = value
 			return
 		}
-
-		if bytes.EqualFold(headerName, key) {
+		if bytes.EqualFold(headerName[:res.HeaderNameLens[i]], key) {
 			res.HeaderValueList[i] = append(res.HeaderValueList[i], ';')
 			res.HeaderValueList[i] = append(res.HeaderValueList[i], value...)
 			break
@@ -98,7 +127,8 @@ func (res *Response) Write(bw *bufio.Writer) error {
 	bw.WriteString("\r\n")
 
 	// Headers
-	for i, headerName := range res.HeaderNameList {
+	for i := 0; i < res.HeaderCount; i++ {
+		headerName := res.HeaderNameList[i][:res.HeaderNameLens[i]]
 		if len(headerName) == 0 {
 			break
 		}
@@ -108,7 +138,7 @@ func (res *Response) Write(bw *bufio.Writer) error {
 		bw.WriteString("\r\n")
 	}
 
-	bw.WriteString("Content-Length: ")
+	bw.WriteString("content-length: ")
 	lenStr := strconv.AppendInt(res.lenBuf[:0], int64(len(res.Body)), 10)
 	bw.Write(lenStr)
 	bw.WriteString("\r\n\r\n")

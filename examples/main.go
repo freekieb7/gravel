@@ -131,7 +131,7 @@ func run(ctx context.Context) error {
 	serverErrorChannel := make(chan error, 1)
 
 	addr := "0.0.0.0:8080"
-	server := http.NewServer("gravel", router.Handler(), 2*8)
+	server := http.NewServer("gravel", router.Handler())
 
 	go func() {
 		log.Printf("Listening and serving on: %s", addr)

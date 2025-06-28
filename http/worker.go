@@ -8,27 +8,20 @@ import (
 )
 
 type WorkerPool struct {
+	Pool    [WorkerPoolSize]RequestCtx
 	Ready   RingBuffer[*RequestCtx]
-	Size    uint64
-	Start   uint64
-	End     uint64
 	Handler Handler
 }
 
-func NewWorkerPool(handler Handler, size uint64) WorkerPool {
+func NewWorkerPool(handler Handler) WorkerPool {
 	wp := WorkerPool{}
 	wp.Handler = handler
-	wp.Size = size
-	wp.Ready = NewRingBuffer[*RequestCtx](size)
-
-	for range size {
-		reqCtx := RequestCtx{
-			ConnReader: bufio.NewReaderSize(nil, MaxRequestSize),
-			ConnWriter: bufio.NewWriterSize(nil, MaxResponseSize),
-		}
-		wp.Ready.Enqueue(&reqCtx)
+	wp.Ready = NewRingBuffer[*RequestCtx]()
+	for i := range wp.Pool {
+		wp.Pool[i].ConnReader = bufio.NewReaderSize(nil, DefaultReadBufferSize)
+		wp.Pool[i].ConnWriter = bufio.NewWriterSize(nil, DefaultWriteBufferSize)
+		wp.Ready.Enqueue(&wp.Pool[i])
 	}
-
 	return wp
 }
 
@@ -37,34 +30,27 @@ var (
 	ErrEmpty = errors.New("ring buffer is empty")
 )
 
+type RingBuffer[T any] struct {
+	buffer [WorkerPoolSize]slot[T]
+	mask   uint64
+	enqPos uint64
+	deqPos uint64
+}
+
 type slot[T any] struct {
 	sequence uint64
 	value    T
 }
 
-type RingBuffer[T any] struct {
-	buffer []slot[T]
-	mask   uint64
-	_      [8]uint64 // padding to avoid false sharing
-	enqPos uint64
-	_      [8]uint64
-	deqPos uint64
-}
-
 // NewRingBuffer creates a new ring buffer of size N (must be power of 2)
-func NewRingBuffer[T any](size uint64) RingBuffer[T] {
-	if size == 0 || (size&(size-1)) != 0 {
-		panic("size must be a power of 2")
-	}
-
-	buf := make([]slot[T], size)
+func NewRingBuffer[T any]() RingBuffer[T] {
+	var buf [WorkerPoolSize]slot[T]
 	for i := range buf {
 		buf[i].sequence = uint64(i)
 	}
-
 	return RingBuffer[T]{
 		buffer: buf,
-		mask:   size - 1,
+		mask:   WorkerPoolSize - 1,
 	}
 }
 

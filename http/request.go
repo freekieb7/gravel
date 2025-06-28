@@ -20,9 +20,19 @@ type Request struct {
 
 	lowerKey [64]byte // adjust size as needed
 
+	HeaderCount int
 }
 
 func (req *Request) Reset() {
+	req.Method = nil
+	req.Path = nil
+	req.Protocol = nil
+	for i := 0; i < req.HeaderCount; i++ {
+		req.HeaderNameList[i] = nil
+		req.HeaderValueList[i] = nil
+	}
+	req.HeaderCount = 0
+	req.BodyRaw = nil
 }
 
 func (req *Request) HeaderValue(key []byte) ([]byte, bool) {
@@ -133,26 +143,25 @@ func (req *Request) Parse(br *bufio.Reader) error {
 			return err
 		}
 		if len(b) == 0 {
-			if i+1 < MaxRequestHeaders {
-				req.HeaderNameList[i] = nil
-				req.HeaderValueList[i] = nil
-			}
+			req.HeaderCount = i
 			break
 		}
-
-		cn := bytes.IndexByte(b, ' ')
-		if cn < 0 {
-			return errors.New("cannot find http request header name")
+		colon := bytes.IndexByte(b, ':')
+		if colon < 0 {
+			return errors.New("cannot find http request header colon")
 		}
-		// Lower-case header name in-place (ASCII only, zero alloc)
-		name := b[:cn-1]
+		name := b[:colon]
 		for j := range name {
 			if name[j] >= 'A' && name[j] <= 'Z' {
 				name[j] += 'a' - 'A'
 			}
 		}
+		value := b[colon+1:]
+		if len(value) > 0 && value[0] == ' ' {
+			value = value[1:]
+		}
 		req.HeaderNameList[i] = name
-		req.HeaderValueList[i] = b[cn+1:]
+		req.HeaderValueList[i] = value
 	}
 
 	return nil

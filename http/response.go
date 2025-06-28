@@ -20,9 +20,13 @@ type Response struct {
 }
 
 func (res *Response) Reset() {
-	res.Status = 200
+	for i := 0; i < res.HeaderCount; i++ {
+		res.HeaderNameLens[i] = 0
+		res.HeaderValueList[i] = nil
+	}
 	res.HeaderCount = 0
 	res.Body = nil
+	res.Status = 200
 }
 
 func (res *Response) AddCookie(cookie Cookie) {
@@ -118,7 +122,7 @@ func (res *Response) AddHeader(key, value []byte) {
 }
 
 func (res *Response) Write(bw *bufio.Writer) error {
-	// Start line
+	// Write status line
 	bw.WriteString("HTTP/1.1 ")
 	statusStr := strconv.AppendInt(res.statusBuf[:0], int64(res.Status), 10)
 	bw.Write(statusStr)
@@ -126,25 +130,25 @@ func (res *Response) Write(bw *bufio.Writer) error {
 	bw.WriteString(statusMessages[res.Status])
 	bw.WriteString("\r\n")
 
-	// Headers
+	// Write headers in a tight loop
 	for i := 0; i < res.HeaderCount; i++ {
 		headerName := res.HeaderNameList[i][:res.HeaderNameLens[i]]
-		if len(headerName) == 0 {
-			break
-		}
 		bw.Write(headerName)
 		bw.WriteString(": ")
 		bw.Write(res.HeaderValueList[i])
 		bw.WriteString("\r\n")
 	}
 
+	// Write Content-Length header
 	bw.WriteString("content-length: ")
 	lenStr := strconv.AppendInt(res.lenBuf[:0], int64(len(res.Body)), 10)
 	bw.Write(lenStr)
 	bw.WriteString("\r\n\r\n")
 
-	// Body
-	bw.Write(res.Body)
+	// Write body directly
+	if len(res.Body) > 0 {
+		bw.Write(res.Body)
+	}
 
 	return bw.Flush()
 }

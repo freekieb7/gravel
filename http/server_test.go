@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/valyala/fasthttp"
 )
 
 var defaultClientsCount = runtime.NumCPU()
@@ -25,36 +27,53 @@ var defaultClientsCount = runtime.NumCPU()
 // }
 
 func BenchmarkServerGet1ReqPerConn(b *testing.B) {
+	b.ReportAllocs()
 	benchmarkServerGet(b, defaultClientsCount, 1)
 }
 
-// func BenchmarkServerGet2ReqPerConn(b *testing.B) {
-// 	benchmarkServerGet(b, defaultClientsCount, 2)
-// }
+func BenchmarkServerGet2ReqPerConn(b *testing.B) {
+	benchmarkServerGet(b, defaultClientsCount, 2)
+}
 
-// func BenchmarkServerGet10ReqPerConn(b *testing.B) {
-// 	benchmarkServerGet(b, defaultClientsCount, 10)
-// }
+func BenchmarkServerGet10ReqPerConn(b *testing.B) {
+	benchmarkServerGet(b, defaultClientsCount, 10)
+}
 
-// func BenchmarkServerGet10KReqPerConn(b *testing.B) {
-// 	benchmarkServerGet(b, defaultClientsCount, 10000)
-// }
+func BenchmarkServerGet10KReqPerConn(b *testing.B) {
+	benchmarkServerGet(b, defaultClientsCount, 10000)
+}
+
+func BenchmarkFastHttpServerGet1ReqPerConn(b *testing.B) {
+	benchmarkFastHttpServerGet(b, defaultClientsCount, 1)
+}
+
+func BenchmarkFastHttpServerGet2ReqPerConn(b *testing.B) {
+	benchmarkFastHttpServerGet(b, defaultClientsCount, 2)
+}
+
+func BenchmarkFastHttpServerGet10ReqPerConn(b *testing.B) {
+	benchmarkFastHttpServerGet(b, defaultClientsCount, 10)
+}
+
+func BenchmarkFastHttpServerGet10KReqPerConn(b *testing.B) {
+	benchmarkFastHttpServerGet(b, defaultClientsCount, 10000)
+}
 
 func BenchmarkNetHTTPServerGet1ReqPerConn(b *testing.B) {
 	benchmarkNetHTTPServerGet(b, defaultClientsCount, 1)
 }
 
-// func BenchmarkNetHTTPServerGet2ReqPerConn(b *testing.B) {
-// 	benchmarkNetHTTPServerGet(b, defaultClientsCount, 2)
-// }
+func BenchmarkNetHTTPServerGet2ReqPerConn(b *testing.B) {
+	benchmarkNetHTTPServerGet(b, defaultClientsCount, 2)
+}
 
-// func BenchmarkNetHTTPServerGet10ReqPerConn(b *testing.B) {
-// 	benchmarkNetHTTPServerGet(b, defaultClientsCount, 10)
-// }
+func BenchmarkNetHTTPServerGet10ReqPerConn(b *testing.B) {
+	benchmarkNetHTTPServerGet(b, defaultClientsCount, 10)
+}
 
-// func BenchmarkNetHTTPServerGet10KReqPerConn(b *testing.B) {
-// 	benchmarkNetHTTPServerGet(b, defaultClientsCount, 10000)
-// }
+func BenchmarkNetHTTPServerGet10KReqPerConn(b *testing.B) {
+	benchmarkNetHTTPServerGet(b, defaultClientsCount, 10000)
+}
 
 // func BenchmarkServerPost1ReqPerConn(b *testing.B) {
 // 	benchmarkServerPost(b, defaultClientsCount, 1)
@@ -335,7 +354,27 @@ func benchmarkServerGet(b *testing.B, clientsCount, requestsPerConn int) {
 		// }
 		registerServedRequest(b, ch)
 	})
-	benchmarkServer(b, &s, clientsCount, requestsPerConn, getRequest)
+	benchmarkServer(b, s, clientsCount, requestsPerConn, getRequest)
+	verifyRequestsServed(b, ch)
+}
+
+func benchmarkFastHttpServerGet(b *testing.B, clientsCount, requestsPerConn int) {
+	ch := make(chan struct{}, b.N)
+	s := &fasthttp.Server{
+		Handler: func(ctx *fasthttp.RequestCtx) {
+			if !ctx.IsGet() {
+				b.Fatalf("Unexpected request method: %q", ctx.Method())
+			}
+			ctx.Success("text/plain", fakeResponse)
+			// if requestsPerConn == 1 {
+			// 	ctx.SetConnectionClose()
+			// }
+
+			registerServedRequest(b, ch)
+		},
+		Concurrency: 16 * clientsCount,
+	}
+	benchmarkServer(b, s, clientsCount, requestsPerConn, getRequest)
 	verifyRequestsServed(b, ch)
 }
 
@@ -451,6 +490,31 @@ func benchmarkServer(b *testing.B, s realServer, clientsCount, requestsPerConn i
 
 	select {
 	case <-ch:
+	case <-time.After(10 * time.Second):
+		b.Fatalf("Server.Serve() didn't stop")
+	}
+}
+
+func BenchmarkServerServe(b *testing.B) {
+	clientsCount := defaultClientsCount
+	requestsPerConn := 1
+
+	// Use the same request as other benchmarks
+	ln := newFakeListener(b.N, clientsCount, requestsPerConn, getRequest)
+	s := NewServer("bench", func(ctx *RequestCtx) {
+		// Minimal handler for benchmarking
+	})
+
+	done := make(chan struct{})
+	go func() {
+		s.Serve(ln) //nolint:errcheck
+		done <- struct{}{}
+	}()
+
+	<-ln.done
+
+	select {
+	case <-done:
 	case <-time.After(10 * time.Second):
 		b.Fatalf("Server.Serve() didn't stop")
 	}

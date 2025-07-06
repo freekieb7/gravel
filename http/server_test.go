@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/valyala/fasthttp"
 )
 
 var defaultClientsCount = runtime.NumCPU()
@@ -27,7 +25,6 @@ var defaultClientsCount = runtime.NumCPU()
 // }
 
 func BenchmarkServerGet1ReqPerConn(b *testing.B) {
-	b.ReportAllocs()
 	benchmarkServerGet(b, defaultClientsCount, 1)
 }
 
@@ -41,22 +38,6 @@ func BenchmarkServerGet10ReqPerConn(b *testing.B) {
 
 func BenchmarkServerGet10KReqPerConn(b *testing.B) {
 	benchmarkServerGet(b, defaultClientsCount, 10000)
-}
-
-func BenchmarkFastHttpServerGet1ReqPerConn(b *testing.B) {
-	benchmarkFastHttpServerGet(b, defaultClientsCount, 1)
-}
-
-func BenchmarkFastHttpServerGet2ReqPerConn(b *testing.B) {
-	benchmarkFastHttpServerGet(b, defaultClientsCount, 2)
-}
-
-func BenchmarkFastHttpServerGet10ReqPerConn(b *testing.B) {
-	benchmarkFastHttpServerGet(b, defaultClientsCount, 10)
-}
-
-func BenchmarkFastHttpServerGet10KReqPerConn(b *testing.B) {
-	benchmarkFastHttpServerGet(b, defaultClientsCount, 10000)
 }
 
 func BenchmarkNetHTTPServerGet1ReqPerConn(b *testing.B) {
@@ -355,26 +336,6 @@ func benchmarkServerGet(b *testing.B, clientsCount, requestsPerConn int) {
 	verifyRequestsServed(b, ch)
 }
 
-func benchmarkFastHttpServerGet(b *testing.B, clientsCount, requestsPerConn int) {
-	ch := make(chan struct{}, b.N)
-	s := &fasthttp.Server{
-		Handler: func(ctx *fasthttp.RequestCtx) {
-			if !ctx.IsGet() {
-				b.Fatalf("Unexpected request method: %q", ctx.Method())
-			}
-			ctx.Success("text/plain", fakeResponse)
-			// if requestsPerConn == 1 {
-			// 	ctx.SetConnectionClose()
-			// }
-
-			registerServedRequest(b, ch)
-		},
-		Concurrency: 16 * clientsCount,
-	}
-	benchmarkServer(b, s, clientsCount, requestsPerConn, getRequest)
-	verifyRequestsServed(b, ch)
-}
-
 func benchmarkNetHTTPServerGet(b *testing.B, clientsCount, requestsPerConn int) {
 	ch := make(chan struct{}, b.N)
 	s := &http.Server{
@@ -465,8 +426,8 @@ func verifyRequestsServed(b *testing.B, ch <-chan struct{}) {
 		select {
 		case <-ch:
 			requestsServed++
-			// case <-time.After(100 * time.Millisecond):
-			// 	b.Fatalf("Unexpected number of requests served %d. Expected %d", requestsServed, requestsSent)
+		case <-time.After(100 * time.Millisecond):
+			b.Fatalf("Unexpected number of requests served %d. Expected %d", requestsServed, requestsSent)
 		}
 	}
 }

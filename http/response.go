@@ -62,12 +62,9 @@ func (res *Response) WithText(payload string) *Response {
 
 // Optimized SetHeader: lower-case key, scan only up to HeaderCount, no EqualFold
 func (res *Response) SetHeader(key, value []byte) {
-	n := len(key)
-	if n > 64 {
-		n = 64
-	}
+	n := min(len(key), 64)
 	var lowerKey [64]byte
-	for i := 0; i < n; i++ {
+	for i := range n {
 		c := key[i]
 		if c >= 'A' && c <= 'Z' {
 			c += 'a' - 'A'
@@ -82,7 +79,7 @@ func (res *Response) SetHeader(key, value []byte) {
 			continue
 		}
 		eq := true
-		for j := 0; j < n; j++ {
+		for j := range n {
 			if headerName[j] != lookup[j] {
 				eq = false
 				break
@@ -104,10 +101,7 @@ func (res *Response) SetHeader(key, value []byte) {
 func (res *Response) AddHeader(key, value []byte) {
 	for i, headerName := range res.HeaderNameList {
 		if len(headerName) == 0 {
-			n := len(key)
-			if n > 64 {
-				n = 64
-			}
+			n := min(len(key), 64)
 			copy(res.HeaderNameList[i][:], key[:n])
 			res.HeaderNameLens[i] = n
 			res.HeaderValueList[i] = value

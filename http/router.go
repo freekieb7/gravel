@@ -2,8 +2,6 @@ package http
 
 import "net/http"
 
-type Handler func(ctx *RequestCtx)
-
 type Router struct {
 	Routes     []Route
 	Middleware []Middleware
@@ -79,15 +77,15 @@ func (router *Router) Group(path string, groupFunc func(group *Router), middlewa
 }
 
 func (router *Router) Handler() Handler {
-	return func(ctx *RequestCtx) {
+	return func(req *Request, res *Response) {
 		handler := NotFoundHandler
 		for _, route := range router.Routes {
-			if route.Path != string(ctx.Request.Path) {
+			if route.Path != string(req.Path) {
 				continue
 			}
 
 			for _, method := range route.Methods {
-				if method != string(ctx.Request.Method) {
+				if method != string(req.Method) {
 					continue
 				}
 
@@ -96,6 +94,6 @@ func (router *Router) Handler() Handler {
 			}
 		}
 
-		handler(ctx)
+		handler(req, res)
 	}
 }

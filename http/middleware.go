@@ -12,29 +12,33 @@ import (
 	"github.com/freekieb7/gravel/session/storage"
 )
 
+var (
+	ErrNoCookie = errors.New("http: no cookie error")
+)
+
 type Middleware func(next Handler) Handler
 
 func RecoverMiddleware() Middleware {
 	return func(next Handler) Handler {
-		return func(ctx *RequestCtx) {
+		return func(req *Request, res *Response) {
 			defer func() {
 				if recover := recover(); recover != nil {
 					log.Println(recover)
 
-					ctx.Response.WithText("something went wrong")
+					res.WithText("something went wrong")
 					return
 				}
 			}()
 
-			next(ctx)
+			next(req, res)
 		}
 	}
 }
 
 func EnforceCookieMiddleware() Middleware {
 	return func(next Handler) Handler {
-		return func(ctx *RequestCtx) {
-			_, err := ctx.Request.Cookie("SID")
+		return func(req *Request, res *Response) {
+			_, err := req.Cookie("SID")
 			if errors.Is(err, ErrNoCookie) {
 				rawCookieValue := make([]byte, 16)
 				rand.Read(rawCookieValue)
@@ -50,11 +54,11 @@ func EnforceCookieMiddleware() Middleware {
 					SameSite:    SameSiteStrictMode,
 				}
 
-				ctx.Request.AddCookie(cookie)
-				ctx.Response.AddCookie(cookie)
+				req.AddCookie(cookie)
+				res.AddCookie(cookie)
 			}
 
-			next(ctx)
+			next(req, res)
 		}
 	}
 }
@@ -63,10 +67,10 @@ func SessionMiddleware() Middleware {
 	sessionStore := storage.NewMemorySessionStore()
 
 	return func(next Handler) Handler {
-		return func(ctx *RequestCtx) {
-			cookie, err := ctx.Request.Cookie("SID")
+		return func(req *Request, res *Response) {
+			cookie, err := req.Cookie("SID")
 			if errors.Is(err, http.ErrNoCookie) {
-				ctx.Response.WithStatus(500)
+				res.Status = StatusInternalServerError
 				return
 			}
 
@@ -82,7 +86,7 @@ func SessionMiddleware() Middleware {
 				sess.Replace(attributes)
 			}
 
-			next(ctx)
+			next(req, res)
 
 			sessionStore.Save(sess)
 		}

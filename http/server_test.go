@@ -322,17 +322,11 @@ var (
 func benchmarkServerGet(b *testing.B, clientsCount, requestsPerConn int) {
 	ch := make(chan struct{}, b.N)
 
-	s := NewServer("test", func(ctx *RequestCtx) {
-		// if !ctx.IsGet() {
-		// 	b.Fatalf("Unexpected request method: %q", ctx.Method())
-		// }
-		// ctx.Success("text/plain", fakeResponse)
-		// if requestsPerConn == 1 {
-		// 	ctx.SetConnectionClose()
-		// }
+	s := NewServer(func(req *Request, res *Response) {
 		registerServedRequest(b, ch)
 	})
-	benchmarkServer(b, s, clientsCount, requestsPerConn, getRequest)
+	s.WorkerPoolSize = 1
+	benchmarkServer(b, &s, clientsCount, requestsPerConn, getRequest)
 	verifyRequestsServed(b, ch)
 }
 

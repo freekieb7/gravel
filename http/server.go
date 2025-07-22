@@ -2,153 +2,184 @@ package http
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"errors"
 	"io"
+	"log"
 	"net"
+	"runtime"
+	"sync"
 	"time"
 )
 
-const (
-	DefaultReadBufferSize  = 2 * 1024 * 1024
-	DefaultWriteBufferSize = 2 * 1024 * 1024
-	MaxRequestHeaders      = 32
-	MaxResponseHeaders     = 32
-	// WorkerPoolSize         uint32 = 2 * runtime.NumCPU() // or higher, depending on your CPU and workload
-)
-
-const WorkerPoolSize uint32 = 16
-
-var (
-	Http11           = []byte("HTTP/1.1")
-	headerConnection = []byte("connection")
-	headerKeepAlive  = []byte("keep-alive")
-	headerClose      = []byte("close")
-)
-
 type Server struct {
-	Name         string
-	Handler      Handler
-	ShutdownFunc func(context.Context) error
-	shutdownCh   chan struct{}
+	WorkerPoolSize uint32
+	Handler        func(req *Request, res *Response)
+	ShutdownCh     chan struct{}
+	Wg             sync.WaitGroup // Registers shutdowns
 }
 
-func NewServer(name string, handler Handler) *Server {
-	return &Server{
-		Name:         name,
-		Handler:      handler,
-		ShutdownFunc: func(ctx context.Context) error { return nil },
-		shutdownCh:   make(chan struct{}),
+func NewServer(handler Handler) Server {
+	return Server{
+		Handler:    handler,
+		ShutdownCh: make(chan struct{}),
 	}
 }
 
 func (s *Server) ListenAndServe(addr string) error {
-	listener, err := net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
 
-	return s.Serve(listener)
-}
-
-func (s *Server) Serve(listener net.Listener) error {
-	defer listener.Close()
-
-	var workers [WorkerPoolSize]chan net.Conn
-	for i := range workers {
-		workers[i] = make(chan net.Conn, 10000)
-
-		go func(connChan chan net.Conn, handler Handler) {
-			var (
-				br = bufio.NewReaderSize(nil, DefaultReadBufferSize)
-				bw = bufio.NewWriterSize(nil, DefaultWriteBufferSize)
-			)
-
-			var requestCtx RequestCtx
-
-			for conn := range connChan {
-				br.Reset(conn)
-				bw.Reset(conn)
-
-				for {
-					requestCtx.Request.Reset()
-					requestCtx.Response.Reset()
-
-					conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-
-					// Handle request
-					err := requestCtx.Request.Parse(br)
-					if err != nil {
-						break
-					}
-
-					handler(&requestCtx)
-
-					// Keep-alive
-					var keepAlive bool
-					v, found := requestCtx.Request.HeaderValue(headerConnection)
-					if found {
-						keepAlive = bytes.Equal(v, headerKeepAlive)
-					} else {
-						keepAlive = bytes.Equal(requestCtx.Request.Protocol, Http11)
-					}
-
-					if keepAlive {
-						requestCtx.Response.SetHeader(headerConnection, headerKeepAlive)
-					} else {
-						requestCtx.Response.SetHeader(headerConnection, headerClose)
-					}
-
-					// Protection against slow client acknowledgements
-					conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-					if err := requestCtx.Response.Write(bw); err != nil {
-						break
-					}
-					if err := bw.Flush(); err != nil {
-						break
-					}
-					conn.SetWriteDeadline(time.Time{})
-
-					if !keepAlive {
-						break
-					}
-				}
-
-				conn.Close()
-			}
-		}(workers[i], s.Handler)
+	// Optimize TCP listener
+	if tcpLn, ok := ln.(*net.TCPListener); ok {
+		// Set socket options for better performance
+		tcpLn.SetDeadline(time.Time{}) // Remove any deadline
 	}
 
+	return s.Serve(ln)
+}
+
+func (s *Server) Serve(ln net.Listener) error {
+	defer ln.Close()
+
+	// Add this defer to signal completion of Serve method
+	defer s.Wg.Done()
+
+	// Auto-size worker pool if not set - make it power of 2 for faster modulo
+	if s.WorkerPoolSize == 0 {
+		cores := uint32(runtime.NumCPU())
+		s.WorkerPoolSize = 1
+		for s.WorkerPoolSize < cores*512 {
+			s.WorkerPoolSize <<= 1 // Next power of 2
+		}
+	}
+
+	workerChannels := make([]chan net.Conn, s.WorkerPoolSize)
+	for i := range workerChannels {
+		s.Wg.Add(1) // This is for each worker goroutine
+
+		workerChannels[i] = make(chan net.Conn, ChannelBufferSize)
+		go s.ServeConn(workerChannels[i])
+	}
+
+	// Use atomic operations for better performance
 	var counter uint32
+	mask := s.WorkerPoolSize - 1 // For power-of-2 fast modulo
+
 	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) || err == io.EOF {
-				return nil
+		select {
+		case <-s.ShutdownCh:
+			log.Println("Server shutdown initiated...")
+
+			// Close all worker channels to signal shutdown
+			for i := range workerChannels {
+				close(workerChannels[i])
 			}
-			return err
+
+			return nil
+		default:
 		}
 
-		idx := counter % WorkerPoolSize
+		// Set a short timeout for Accept during shutdown
+		if tcpLn, ok := ln.(*net.TCPListener); ok {
+			tcpLn.SetDeadline(time.Now().Add(100 * time.Millisecond))
+		}
+
+		conn, err := ln.Accept()
+		if err != nil {
+			// Check if this is due to shutdown
+			select {
+			case <-s.ShutdownCh:
+				log.Println("Server shutdown during Accept")
+				for i := range workerChannels {
+					close(workerChannels[i])
+				}
+				return nil
+			default:
+				// Check if it's a timeout (expected during shutdown)
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue // Continue the loop to check shutdown again
+				}
+				return err
+			}
+		}
+
+		// Reset deadline after successful accept
+		if tcpLn, ok := ln.(*net.TCPListener); ok {
+			tcpLn.SetDeadline(time.Time{})
+		}
+
+		// Fast modulo using bitwise AND (only works with power of 2)
+		idx := counter & mask
 		counter++
 
-		select {
-		case workers[idx] <- conn:
-		default:
-			conn.Close() // worker busy, drop connection
+		// Try multiple workers before giving up
+		for range 3 {
+			select {
+			case workerChannels[idx] <- conn:
+				goto next_connection
+			default:
+				idx = (idx + 1) & mask // Try next worker
+			}
 		}
+
+		// All workers busy
+		conn.Close()
+
+	next_connection:
+	}
+}
+
+func (s *Server) ServeConn(ch chan net.Conn) {
+	// Signal completion when this worker exits
+	defer s.Wg.Done()
+
+	// Shutdown / crash behaviour
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(r)
+		}
+	}()
+
+	br := bufio.NewReaderSize(nil, DefaultReadBufferSize)
+	bw := bufio.NewWriterSize(nil, DefaultWriteBufferSize)
+
+	req := Request{}
+	res := Response{}
+
+	for conn := range ch {
+		// Check if channel was closed (shutdown signal)
+		if conn == nil {
+			return
+		}
+
+		req.Method = nil
+		req.Path = nil
+		req.Protocol = nil
+		req.Body = nil
+		req.Close = false
+
+		// Don't zero the entire struct - just reset critical fields
+		res.Status = StatusOK
+		res.KeepAlive = true
+		res.Body = nil
+		res.headerCount = 0
+		res.Chunked = false
+		res.writer = nil // Clear writer reference
+
+		s.handleConnection(conn, br, bw, &req, &res)
 	}
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	// Send shutdown signal to all workers
-	close(s.shutdownCh)
+	close(s.ShutdownCh)
 
 	done := make(chan struct{})
 	go func() {
 		// Wait for all workers to acknowledge shutdown
-		// s.wg.Wait()
+		s.Wg.Wait()
 		close(done)
 	}()
 
@@ -158,4 +189,92 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (s *Server) handleConnection(conn net.Conn, br *bufio.Reader, bw *bufio.Writer, req *Request, res *Response) {
+	defer conn.Close()
+
+	// Optimize TCP connection once per connection
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetNoDelay(true) // DISABLE Nagle - we handle batching at application level
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(3 * time.Minute)
+		tcpConn.SetReadBuffer(128 * 1024)
+		tcpConn.SetWriteBuffer(128 * 1024)
+	}
+
+	br.Reset(conn)
+	bw.Reset(conn)
+
+	// Reduced connection timeout for faster shutdown
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	requestCount := 0
+	// Reduced max requests per connection for faster shutdown
+	maxRequestsPerConnection := 10000
+
+	for requestCount < maxRequestsPerConnection {
+		requestCount++
+
+		// Reset response fields individually instead of struct copy
+		res.Status = StatusOK
+		res.KeepAlive = true
+		res.Body = nil
+		res.headerCount = 0
+		res.Chunked = false
+		// Associate writer with response
+		res.writer = bw
+
+		// Check for shutdown every request
+		select {
+		case <-s.ShutdownCh:
+			// Send connection close response and exit
+			res.KeepAlive = false
+			res.Body = []byte("Server shutting down")
+			res.WriteTo(bw)
+			bw.Flush()
+			return
+		default:
+		}
+
+		if err := req.Parse(br); err != nil {
+			if err != io.EOF {
+				log.Print("Parse error:", err)
+			}
+			break
+		}
+
+		res.KeepAlive = !req.Close
+
+		// Call handler - it can now use streaming without bw parameter
+		s.Handler(req, res)
+
+		// Only write response if not already handled by streaming
+		if !res.Chunked || res.Body != nil {
+			if err := res.WriteTo(bw); err != nil {
+				log.Print("WriteTo error:", err)
+				break
+			}
+
+			if err := bw.Flush(); err != nil {
+				log.Print("Flush error:", err)
+				break
+			}
+		}
+
+		// Clear writer reference for safety
+		res.writer = nil
+
+		if req.Close {
+			break
+		}
+
+		// Update deadline more frequently for faster shutdown
+		if requestCount%5 == 0 {
+			conn.SetDeadline(time.Now().Add(5 * time.Second))
+		}
+	}
+
+	// Final flush for any remaining data
+	bw.Flush()
 }

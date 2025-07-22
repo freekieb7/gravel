@@ -6,6 +6,6 @@ type Route struct {
 	Handler Handler
 }
 
-var NotFoundHandler Handler = func(ctx *RequestCtx) {
-	ctx.Response.WithStatus(StatusNotFound)
+var NotFoundHandler Handler = func(req *Request, res *Response) {
+	res.Status = StatusNotFound
 }

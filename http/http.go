@@ -31,8 +31,15 @@ var (
 )
 
 type Header struct {
-	Name     [64]byte  // Fixed size for header name
-	Value    [256]byte // Fixed size for header value
+	Name     [64]byte
+	Value    [256]byte
+	NameLen  int
+	ValueLen int
+}
+
+type QueryParam struct {
+	Name     [64]byte
+	Value    [256]byte
 	NameLen  int
 	ValueLen int
 }

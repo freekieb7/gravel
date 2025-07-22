@@ -13,11 +13,15 @@ type Request struct {
 	Protocol []byte
 	Body     []byte
 	Close    bool
+
 	// Add buffer to reuse for body reading
 	bodyBuf [4096]byte
-	// Add header storage
+
 	headers     [32]Header // Support up to 32 headers
 	headerCount int
+
+	queryParams      [32]QueryParam
+	queryParamsCount int
 }
 
 func (req *Request) Reset() {
@@ -26,6 +30,46 @@ func (req *Request) Reset() {
 	req.Protocol = nil
 	req.Body = nil
 	req.Close = false
+
+	req.headerCount = 0
+	req.queryParamsCount = 0
+}
+
+func (req *Request) QueryParam(name []byte) ([]byte, bool) {
+	// Convert name to lowercase for case-insensitive comparison
+	lowerName := make([]byte, len(name))
+	for i, b := range name {
+		if b >= 'A' && b <= 'Z' {
+			lowerName[i] = b + 32 // Convert to lowercase
+		} else {
+			lowerName[i] = b
+		}
+	}
+
+	// Search through stored params
+	for i := 0; i < req.headerCount; i++ {
+		h := &req.queryParams[i]
+
+		// Check if name length matches
+		if h.NameLen != len(lowerName) {
+			continue
+		}
+
+		// Compare param names (case-insensitive)
+		match := true
+		for j := 0; j < h.NameLen; j++ {
+			if h.Name[j] != lowerName[j] {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			return h.Value[:h.ValueLen], true
+		}
+	}
+
+	return nil, false // Param not found
 }
 
 func (req *Request) Parse(br *bufio.Reader) error {
@@ -70,6 +114,19 @@ func (req *Request) Parse(br *bufio.Reader) error {
 	req.Path = line[space1+1 : space2]
 	req.Protocol = line[space2+1:]
 
+	// Path parse
+	if questionIdx := bytes.IndexByte(req.Path, '?'); questionIdx >= 0 {
+		// Split path and query string
+		actualPath := req.Path[:questionIdx]
+		queryString := req.Path[questionIdx+1:]
+		req.Path = actualPath // Update path to exclude query string
+
+		// Parse query parameters
+		if err := req.parseQueryParams(queryString); err != nil {
+			return err
+		}
+	}
+
 	// Fast protocol check
 	if len(req.Protocol) == 8 {
 		if bytes.Equal(req.Protocol, protocolHttp11) {
@@ -87,6 +144,72 @@ func (req *Request) Parse(br *bufio.Reader) error {
 	return req.parseHeaders(br)
 }
 
+func (req *Request) parseQueryParams(queryString []byte) error {
+	if len(queryString) == 0 {
+		return nil
+	}
+
+	// Split by & to get individual parameters
+	start := 0
+	for i := 0; i <= len(queryString); i++ {
+		if i == len(queryString) || queryString[i] == '&' {
+			if i > start && req.queryParamsCount < len(req.queryParams) {
+				param := queryString[start:i]
+				if err := req.parseQueryParam(param); err != nil {
+					return err
+				}
+			}
+			start = i + 1
+		}
+	}
+	return nil
+}
+
+func (req *Request) parseQueryParam(param []byte) error {
+	if req.queryParamsCount >= len(req.queryParams) {
+		return nil // Ignore if we've reached max params
+	}
+
+	qp := &req.queryParams[req.queryParamsCount]
+
+	// Find the = separator
+	eqIdx := bytes.IndexByte(param, '=')
+	if eqIdx < 0 {
+		// No value, treat entire param as name with empty value
+		qp.NameLen = min(len(param), len(qp.Name))
+		copy(qp.Name[:qp.NameLen], param[:qp.NameLen])
+		qp.ValueLen = 0
+	} else {
+		// Split name and value
+		name := param[:eqIdx]
+		value := param[eqIdx+1:]
+
+		// URL decode and store name
+		nameLen, err := req.urlDecode(name, qp.Name[:])
+		if err != nil {
+			return err
+		}
+		qp.NameLen = nameLen
+
+		// URL decode and store value
+		valueLen, err := req.urlDecode(value, qp.Value[:])
+		if err != nil {
+			return err
+		}
+		qp.ValueLen = valueLen
+	}
+
+	// Convert name to lowercase for case-insensitive lookup
+	for i := 0; i < qp.NameLen; i++ {
+		if qp.Name[i] >= 'A' && qp.Name[i] <= 'Z' {
+			qp.Name[i] += 32
+		}
+	}
+
+	req.queryParamsCount++
+	return nil
+}
+
 func (req *Request) parseHeaders(br *bufio.Reader) error {
 	var (
 		contentLength       int
@@ -95,10 +218,6 @@ func (req *Request) parseHeaders(br *bufio.Reader) error {
 		isChunked           bool
 	)
 
-	// Reset header count
-	req.headerCount = 0
-
-	// Pre-allocate buffer for lowercase conversion to avoid allocation #1 and #2
 	var lowerNameBuf [64]byte // Reusable buffer for header name conversion
 
 	for {
@@ -329,15 +448,6 @@ func (req *Request) Header(name []byte) ([]byte, bool) {
 	return nil, false // Header not found
 }
 
-// Add HeaderString method for convenience
-func (req *Request) HeaderString(name string) (string, bool) {
-	value, found := req.Header([]byte(name))
-	if value == nil || !found {
-		return "", found
-	}
-	return string(value), found
-}
-
 func (req *Request) AddCookie(cookie Cookie) {
 	// if req.Headers["Set-Cookie"] == nil {
 	// 	req.Headers["Set-Cookie"] = []string{}
@@ -359,4 +469,30 @@ func (req *Request) Cookie(name string) (Cookie, error) {
 	// if err := cookie.Parse(data); err != nil {
 	// 	return cookie, err
 	// }
+}
+
+func (req *Request) urlDecode(src []byte, dst []byte) (int, error) {
+	dstLen := 0
+	for i := 0; i < len(src) && dstLen < len(dst); i++ {
+		switch src[i] {
+		case '%':
+			if i+2 >= len(src) {
+				return 0, errors.New("invalid URL encoding")
+			}
+			// Decode hex
+			hi := hexToByte(src[i+1])
+			lo := hexToByte(src[i+2])
+			if hi == 255 || lo == 255 {
+				return 0, errors.New("invalid hex in URL encoding")
+			}
+			dst[dstLen] = hi<<4 | lo
+			i += 2
+		case '+':
+			dst[dstLen] = ' ' // + becomes space in query params
+		default:
+			dst[dstLen] = src[i]
+		}
+		dstLen++
+	}
+	return dstLen, nil
 }

@@ -3,11 +3,13 @@ package http
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -238,9 +240,19 @@ func (s *Server) handleConnection(conn net.Conn, br *bufio.Reader, bw *bufio.Wri
 		}
 
 		if err := req.Parse(br); err != nil {
-			if err != io.EOF {
-				log.Print("Parse error:", err)
+			if err == io.EOF {
+				break
 			}
+
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				break
+			}
+
+			if errors.Is(err, syscall.ECONNRESET) {
+				break
+			}
+
+			log.Print("Parse error:", err)
 			break
 		}
 

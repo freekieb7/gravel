@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -62,6 +63,27 @@ func run(ctx context.Context) error {
 		res.WithJSON("{\"test\": true}")
 	})
 
+	router.GET("/params", func(req *http.Request, res *http.Response) {
+		qTest, found := req.QueryParam([]byte("test"))
+		if found {
+			res.WithText(string(qTest))
+		} else {
+			res.WithText("not found")
+		}
+	})
+
+	router.POST("/post", func(req *http.Request, res *http.Response) {
+		var m map[string]any
+		if err := json.Unmarshal(req.Body, &m); err != nil {
+			res.WithText("bad json")
+			return
+		}
+
+		for k, v := range m {
+			log.Printf("key: %s, value: %v\n", k, v)
+		}
+	})
+
 	router.GET("/validation", func(req *http.Request, res *http.Response) {
 		violations := validation.ValidateMap(
 			map[string]any{
@@ -102,24 +124,26 @@ func run(ctx context.Context) error {
 	})
 
 	router.GET("/ticker", func(req *http.Request, res *http.Response) {
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-		defer cancel()
+		go func() {
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			defer cancel()
 
-		task := scheduler.NewTask(
-			func(number int) {
-				fmt.Printf("Task %d: Time is now %s", number, time.Now())
-			},
-			0,
-		)
+			task := scheduler.NewTask(
+				func(number int) {
+					fmt.Printf("Task %d: Time is now %s\n", number, time.Now())
+				},
+				0,
+			)
 
-		job := scheduler.NewJob().
-			WithTasks(*task).
-			WithInterval(time.Second * 2)
+			job := scheduler.NewJob().
+				WithTasks(*task).
+				WithInterval(time.Second * 2)
 
-		scheduler := scheduler.NewScheduler()
-		scheduler.AddJob(*job)
+			scheduler := scheduler.NewScheduler()
+			scheduler.AddJob(*job)
 
-		scheduler.Run(timeoutCtx)
+			scheduler.Run(timeoutCtx)
+		}()
 	})
 
 	router.Group("/v1", func(group *http.Router) {

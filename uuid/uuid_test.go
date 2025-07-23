@@ -21,9 +21,11 @@ func TestUUIDConversion(t *testing.T) {
 }
 
 func BenchmarkUUIDToString(b *testing.B) {
-	for range b.N {
+	for b.Loop() {
 		id := uuid.NewV4()
 		idStr := id.String()
-		uuid.Parse(idStr)
+		if _, err := uuid.Parse(idStr); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

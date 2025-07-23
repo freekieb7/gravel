@@ -50,11 +50,21 @@ func Parse(s string) (UUID, error) {
 		return uuid, ErrInvalidFormat
 	}
 
-	hex.Decode(uuid[:4], []byte(s[:8]))
-	hex.Decode(uuid[4:6], []byte(s[9:13]))
-	hex.Decode(uuid[6:8], []byte(s[14:18]))
-	hex.Decode(uuid[8:10], []byte(s[19:23]))
-	hex.Decode(uuid[10:], []byte(s[24:]))
+	if _, err := hex.Decode(uuid[:4], []byte(s[:8])); err != nil {
+		return uuid, ErrInvalidFormat
+	}
+	if _, err := hex.Decode(uuid[4:6], []byte(s[9:13])); err != nil {
+		return uuid, ErrInvalidFormat
+	}
+	if _, err := hex.Decode(uuid[6:8], []byte(s[14:18])); err != nil {
+		return uuid, ErrInvalidFormat
+	}
+	if _, err := hex.Decode(uuid[8:10], []byte(s[19:23])); err != nil {
+		return uuid, ErrInvalidFormat
+	}
+	if _, err := hex.Decode(uuid[10:], []byte(s[24:])); err != nil {
+		return uuid, ErrInvalidFormat
+	}
 
 	return uuid, nil
 }

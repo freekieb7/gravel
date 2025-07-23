@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 )
@@ -24,10 +25,16 @@ func (client *MicrosoftClient) Token() (string, error) {
 		"client_secret": {client.ClientSecret},
 		"scope":         {"https://graph.microsoft.com/.default"},
 	})
+	if response != nil {
+		defer func() {
+			if closeErr := response.Body.Close(); closeErr != nil {
+				log.Printf("closing body error: %v", err)
+			}
+		}()
+	}
 	if err != nil {
 		return token, err
 	}
-	defer response.Body.Close()
 
 	if response.StatusCode != 200 {
 		return token, fmt.Errorf("bad status code %d", response.StatusCode)

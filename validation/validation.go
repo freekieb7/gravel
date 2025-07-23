@@ -2,7 +2,6 @@ package validation
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -129,8 +128,6 @@ func init() {
 						if v.Len() < minSize {
 							return fmt.Errorf("%s subceeds min size of %d", fieldName, minSize)
 						}
-
-						return errors.New(string(v.Len()))
 					}
 				default:
 					{

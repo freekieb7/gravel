@@ -17,11 +17,9 @@ func TestResponseWrite_Basic(t *testing.T) {
 	buf := &bytes.Buffer{}
 	bw := bufio.NewWriter(buf)
 
-	err := res.WriteTo(bw)
-	if err != nil {
+	if err := res.WriteTo(bw); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	bw.Flush()
 
 	got := buf.String()
 	wantStatus := "HTTP/1.1 200 OK\r\n"
@@ -53,11 +51,9 @@ func TestResponseWrite_MultipleHeaders(t *testing.T) {
 	buf := &bytes.Buffer{}
 	bw := bufio.NewWriter(buf)
 
-	err := res.WriteTo(bw)
-	if err != nil {
+	if err := res.WriteTo(bw); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	bw.Flush()
 
 	got := buf.String()
 	if !bytes.Contains([]byte(got), []byte("x-test: foo\r\n")) {
@@ -83,11 +79,9 @@ func TestResponseWrite_EmptyBody(t *testing.T) {
 	buf := &bytes.Buffer{}
 	bw := bufio.NewWriter(buf)
 
-	err := res.WriteTo(bw)
-	if err != nil {
+	if err := res.WriteTo(bw); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	bw.Flush()
 
 	got := buf.String()
 	if !bytes.Contains([]byte(got), []byte("content-length: 0\r\n")) {

@@ -3,6 +3,8 @@ package filesystem
 import (
 	"fmt"
 	"io"
+	"log"
+	"log/slog"
 	"os"
 )
 
@@ -50,13 +52,21 @@ func (filesystem *localFileSystem) CopyFile(source string, destination string) e
 	if err != nil {
 		return err
 	}
-	defer sourceFile.Close()
+	defer func() {
+		if closeErr := sourceFile.Close(); closeErr != nil {
+			log.Printf("closing file error: %v", err)
+		}
+	}()
 
 	destinationFile, err := os.Create(destination)
 	if err != nil {
 		return err
 	}
-	defer destinationFile.Close()
+	defer func() {
+		if closeErr := destinationFile.Close(); closeErr != nil {
+			slog.Error("closing file error", "error", closeErr)
+		}
+	}()
 
 	_, err = io.Copy(destinationFile, sourceFile)
 	if err != nil {

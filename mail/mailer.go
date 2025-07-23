@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/freekieb7/gravel/auth/oauth"
@@ -97,10 +98,13 @@ func (mailer *microsoftMailer) Send(mails ...Mail) error {
 	if err != nil {
 		return errors.Join(errors.New("sending mail failed"), err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("resp.Body.Close error", "error", err)
+		}
+	}()
 
-	_, err = io.ReadAll(resp.Body)
-	if err != nil {
+	if _, err = io.ReadAll(resp.Body); err != nil {
 		return errors.Join(errors.New("reading response body failed"), err)
 	}
 

@@ -380,7 +380,9 @@ func (req *Request) readChunkedBody(br *bufio.Reader) error {
 
 		if chunkSize == 0 {
 			// Read final \r\n
-			br.ReadSlice('\n')
+			if _, err := br.ReadSlice('\n'); err != nil {
+				return err
+			}
 			break
 		}
 
@@ -402,7 +404,9 @@ func (req *Request) readChunkedBody(br *bufio.Reader) error {
 		bodyLen += chunkSize
 
 		// Read trailing \r\n
-		br.ReadSlice('\n')
+		if _, err := br.ReadSlice('\n'); err != nil {
+			return err
+		}
 	}
 
 	// Set body to the used portion of the buffer

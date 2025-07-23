@@ -3,6 +3,8 @@ package migration
 import (
 	"context"
 	"database/sql"
+	"log"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -76,7 +78,11 @@ func (migrator *migrator) Up(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer transaction.Rollback()
+	defer func() {
+		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+			log.Printf("rollback failed: %v", err)
+		}
+	}()
 
 	for _, migration := range migrations {
 		if current >= migration.Version() {
@@ -120,7 +126,11 @@ func (migrator *migrator) Down(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer transaction.Rollback()
+	defer func() {
+		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+			slog.Error("rollback failed", "error", rollbackErr)
+		}
+	}()
 
 	for _, migration := range migrations {
 		if current >= migration.Version() {

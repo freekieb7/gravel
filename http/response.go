@@ -77,9 +77,13 @@ func (res *Response) WriteTo(bw *bufio.Writer) error {
 	// Fast path for empty body responses (no chunking needed)
 	if len(res.Body) == 0 && res.headerCount == 0 && res.Status == StatusOK && !res.Chunked {
 		if res.KeepAlive {
-			bw.Write(response200Empty)
+			if _, err := bw.Write(response200Empty); err != nil {
+				return err
+			}
 		} else {
-			bw.Write(response200Close)
+			if _, err := bw.Write(response200Close); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -130,7 +134,9 @@ func (res *Response) WriteTo(bw *bufio.Writer) error {
 	n += copy(res.headerBuf[n:], "\r\n")
 
 	// Write all headers at once
-	bw.Write(res.headerBuf[:n])
+	if _, err := bw.Write(res.headerBuf[:n]); err != nil {
+		return err
+	}
 
 	// Write body - chunked or regular
 	if res.Chunked {
@@ -144,11 +150,13 @@ func (res *Response) WriteTo(bw *bufio.Writer) error {
 		}
 	} else {
 		if len(res.Body) > 0 {
-			bw.Write(res.Body)
+			if _, err := bw.Write(res.Body); err != nil {
+				return err
+			}
 		}
 	}
 
-	return nil
+	return bw.Flush()
 }
 
 func (res *Response) writeHeaders(bw *bufio.Writer) error {
@@ -185,7 +193,10 @@ func (res *Response) writeHeaders(bw *bufio.Writer) error {
 	// End headers
 	n += copy(res.headerBuf[n:], "\r\n")
 
-	bw.Write(res.headerBuf[:n])
+	if _, err := bw.Write(res.headerBuf[:n]); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -196,18 +207,29 @@ func (res *Response) writeChunk(bw *bufio.Writer, data []byte) error {
 
 	// Write chunk size in hex
 	hexLen := writeHexToBuffer(len(data), res.chunkSizeBuf[:])
-	bw.Write(res.chunkSizeBuf[:hexLen])
-	bw.Write(crlfOnly)
+	if _, err := bw.Write(res.chunkSizeBuf[:hexLen]); err != nil {
+		return err
+	}
+	if _, err := bw.Write(crlfOnly); err != nil {
+		return err
+	}
 
 	// Write chunk data
-	bw.Write(data)
-	bw.Write(crlfOnly)
+	if _, err := bw.Write(data); err != nil {
+		return err
+	}
+	if _, err := bw.Write(crlfOnly); err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (res *Response) writeChunkEnd(bw *bufio.Writer) error {
-	bw.Write(chunkEndBytes)
+	if _, err := bw.Write(chunkEndBytes); err != nil {
+		return err
+	}
+
 	return nil
 }
 

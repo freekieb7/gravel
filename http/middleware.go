@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -41,7 +42,12 @@ func EnforceCookieMiddleware() Middleware {
 			_, err := req.Cookie("SID")
 			if errors.Is(err, ErrNoCookie) {
 				rawCookieValue := make([]byte, 16)
-				rand.Read(rawCookieValue)
+				_, err := rand.Read(rawCookieValue)
+				if err != nil {
+					log.Printf("rand error: %v", err)
+					res.Status = StatusInternalServerError
+					return
+				}
 
 				cookie := Cookie{
 					Name:        "SID",
@@ -88,7 +94,9 @@ func SessionMiddleware() Middleware {
 
 			next(req, res)
 
-			sessionStore.Save(sess)
+			if err := sessionStore.Save(sess); err != nil {
+				slog.Error("failed to save session", "error", err)
+			}
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,17 +17,19 @@ const (
 	SameSiteNoneMode
 )
 
+var (
+	ErrNoCookie      = errors.New("http: named cookie not present")
+	ErrInvalidCookie = errors.New("http: invalid cookie format")
+	ErrCookieTooLong = errors.New("http: cookie value too long")
+)
+
 type Cookie struct {
 	Name  string
 	Value string
 
-	Path    string    // optional
-	Domain  string    // optional
-	Expires time.Time // optional
-
-	// MaxAge=0 means no 'Max-Age' attribute specified.
-	// MaxAge<0 means delete cookie now, equivalently 'Max-Age: 0'
-	// MaxAge>0 means Max-Age attribute present and given in seconds
+	Path        string
+	Domain      string
+	Expires     time.Time
 	MaxAge      int
 	Secure      bool
 	HttpOnly    bool
@@ -94,6 +97,72 @@ func (c *Cookie) String() string {
 	}
 
 	return b.String()
+}
+
+// Valid checks if the cookie is valid according to RFC 6265
+func (c *Cookie) Valid() error {
+	if c.Name == "" {
+		return fmt.Errorf("cookie name cannot be empty")
+	}
+
+	// Check for invalid characters in name
+	for _, r := range c.Name {
+		if !isValidCookieNameChar(r) {
+			return fmt.Errorf("invalid character in cookie name: %c", r)
+		}
+	}
+
+	// Check value length (practical limit)
+	if len(c.Value) > 4096 {
+		return ErrCookieTooLong
+	}
+
+	// SameSite=None requires Secure
+	if c.SameSite == SameSiteNoneMode && !c.Secure {
+		return fmt.Errorf("SameSite=None requires Secure attribute")
+	}
+
+	return nil
+}
+
+// IsExpired returns true if the cookie has expired
+func (c *Cookie) IsExpired() bool {
+	if c.MaxAge < 0 {
+		return true
+	}
+	if !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
+		return true
+	}
+	return false
+}
+
+// Clone creates a deep copy of the cookie
+func (c *Cookie) Clone() *Cookie {
+	return &Cookie{
+		Name:        c.Name,
+		Value:       c.Value,
+		Path:        c.Path,
+		Domain:      c.Domain,
+		Expires:     c.Expires,
+		MaxAge:      c.MaxAge,
+		Secure:      c.Secure,
+		HttpOnly:    c.HttpOnly,
+		SameSite:    c.SameSite,
+		Partitioned: c.Partitioned,
+	}
+}
+
+// SetExpiry is a convenience method to set expiration
+func (c *Cookie) SetExpiry(duration time.Duration) {
+	c.Expires = time.Now().Add(duration)
+	c.MaxAge = int(duration.Seconds())
+}
+
+// Delete marks the cookie for deletion
+func (c *Cookie) Delete() {
+	c.Value = ""
+	c.MaxAge = -1
+	c.Expires = time.Unix(1, 0) // January 1, 1970
 }
 
 func (c *Cookie) Parse(data string) error {
@@ -192,4 +261,36 @@ func parseTime(value string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("unable to parse time: %s", value)
+}
+
+// isValidCookieNameChar returns true if the character is valid in a cookie name
+func isValidCookieNameChar(r rune) bool {
+	// RFC 6265 - valid characters for cookie names
+	return r > 0x20 && r < 0x7f && r != '"' && r != ',' && r != ';' && r != '\\' &&
+		r != '=' && r != '(' && r != ')' && r != '<' && r != '>' && r != '@' &&
+		r != '{' && r != '}' && r != '[' && r != ']' && r != '?' && r != ':' && r != '/'
+}
+
+// ParseCookies parses multiple cookies from a Cookie header value
+func ParseCookies(cookieHeader string) ([]*Cookie, error) {
+	var cookies []*Cookie
+
+	// Split by semicolon but be careful about quoted values
+	parts := strings.Split(cookieHeader, ";")
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		cookie := &Cookie{}
+		if err := cookie.Parse(part); err != nil {
+			continue // Skip invalid cookies rather than failing entirely
+		}
+
+		cookies = append(cookies, cookie)
+	}
+
+	return cookies, nil
 }

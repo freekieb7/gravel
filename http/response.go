@@ -52,6 +52,42 @@ func (res *Response) SetHeaderString(name, value string) {
 	res.SetHeader([]byte(name), []byte(value))
 }
 
+// SetCookie adds a Set-Cookie header to the response
+func (res *Response) SetCookie(cookie *Cookie) {
+	if cookie == nil {
+		return
+	}
+
+	// Validate cookie before setting
+	if err := cookie.Valid(); err != nil {
+		return // Skip invalid cookies
+	}
+
+	cookieStr := cookie.String()
+	res.SetHeaderString("Set-Cookie", cookieStr)
+}
+
+// SetCookieValue is a convenience method to set a simple cookie
+func (res *Response) SetCookieValue(name, value string) {
+	cookie := &Cookie{
+		Name:  name,
+		Value: value,
+		Path:  "/",
+	}
+	res.SetCookie(cookie)
+}
+
+// DeleteCookie marks a cookie for deletion
+func (res *Response) DeleteCookie(name string) {
+	cookie := &Cookie{
+		Name:   name,
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	}
+	res.SetCookie(cookie)
+}
+
 func (res *Response) WithText(payload string) *Response {
 	res.Body = []byte(payload)
 	res.SetHeaderString("content-type", "text/plain")
@@ -71,6 +107,80 @@ func (res *Response) WithJSON(payload any) *Response {
 
 	res.SetHeaderString("content-type", "application/json")
 	return res
+}
+
+// WithHTML sets HTML content with appropriate content type
+func (res *Response) WithHTML(payload string) *Response {
+	res.Body = []byte(payload)
+	res.SetHeaderString("content-type", "text/html; charset=utf-8")
+	return res
+}
+
+// WithXML sets XML content with appropriate content type
+func (res *Response) WithXML(payload string) *Response {
+	res.Body = []byte(payload)
+	res.SetHeaderString("content-type", "application/xml; charset=utf-8")
+	return res
+}
+
+// WithFile sets response for file download
+func (res *Response) WithFile(filename string, data []byte, contentType string) *Response {
+	res.Body = data
+	if contentType != "" {
+		res.SetHeaderString("content-type", contentType)
+	}
+	res.SetHeaderString("content-disposition", "attachment; filename=\""+filename+"\"")
+	return res
+}
+
+// WithRedirect sets up a redirect response
+func (res *Response) WithRedirect(location string, statusCode uint16) *Response {
+	res.Status = statusCode
+	res.SetHeaderString("location", location)
+	res.Body = nil
+	return res
+}
+
+// WriteChunk writes a chunk for chunked transfer encoding
+func (res *Response) WriteChunk(data []byte) error {
+	if res.writer == nil {
+		return errors.New("response writer not available")
+	}
+
+	if !res.Chunked {
+		return errors.New("response not in chunked mode")
+	}
+
+	// Write chunk size in hex
+	chunkSize := len(data)
+	if chunkSize == 0 {
+		// End chunk
+		_, err := res.writer.WriteString("0\r\n\r\n")
+		return err
+	}
+
+	// Convert size to hex and write
+	hexLen := writeHexToBuffer(chunkSize, res.chunkSizeBuf[:])
+	if _, err := res.writer.Write(res.chunkSizeBuf[:hexLen]); err != nil {
+		return err
+	}
+	if _, err := res.writer.WriteString("\r\n"); err != nil {
+		return err
+	}
+	if _, err := res.writer.Write(data); err != nil {
+		return err
+	}
+	if _, err := res.writer.WriteString("\r\n"); err != nil {
+		return err
+	}
+
+	return res.writer.Flush()
+}
+
+// StartChunkedResponse initializes chunked transfer encoding
+func (res *Response) StartChunkedResponse() {
+	res.Chunked = true
+	res.SetHeaderString("transfer-encoding", "chunked")
 }
 
 func (res *Response) WriteTo(bw *bufio.Writer) error {
@@ -320,10 +430,31 @@ func (sr *StreamingResponse) Close() error {
 }
 
 func (r *Response) AddCookie(cookie Cookie) {
-	// todo
-	// if req.Headers["Set-Cookie"] == nil {
-	// 	req.Headers["Set-Cookie"] = []string{}
-	// }
+	// Validate cookie
+	if cookie.Name == "" {
+		return
+	}
 
-	// req.Headers["Cookie"] = append(req.Headers["Cookie"], cookie.String())
+	// For cookies, we always add a new Set-Cookie header (don't overwrite)
+	cookieStr := cookie.String()
+	r.addHeader([]byte("Set-Cookie"), []byte(cookieStr))
+}
+
+// Helper method to add headers without overwriting (for Set-Cookie)
+func (r *Response) addHeader(name, value []byte) {
+	if r.headerCount >= len(r.headers) {
+		return // Skip if we've reached max headers
+	}
+
+	h := &r.headers[r.headerCount]
+
+	// Copy name (truncate if too long)
+	h.NameLen = min(len(name), len(h.Name))
+	copy(h.Name[:h.NameLen], name[:h.NameLen])
+
+	// Copy value (truncate if too long)
+	h.ValueLen = min(len(value), len(h.Value))
+	copy(h.Value[:h.ValueLen], value[:h.ValueLen])
+
+	r.headerCount++
 }

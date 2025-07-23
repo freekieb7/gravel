@@ -35,9 +35,9 @@ clean:
 deps:
 	go mod download
 
-# pprof:
-# 	go test -test.benchmem -cpuprofile cpu.prof -memprofile mem.prof -bench BenchmarkServerGet ./http/...
-# 	go tool pprof -http localhost:8080 http/cpu.prof
+pprof:
+	go test -test.benchmem -cpuprofile cpu.prof -memprofile mem.prof -bench BenchmarkServerGet ./http/...
+	go tool pprof -http localhost:8080 http/cpu.prof
 
 # bench:
 # 	GOMAXPROCS=4 go test -bench=kServerGet -benchmem -benchtime=10s ./http/...

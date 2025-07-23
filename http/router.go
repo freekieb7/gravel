@@ -1,15 +1,25 @@
 package http
 
-import "net/http"
+import (
+	"net/http"
+	"slices"
+	"strings"
+)
 
 type Router struct {
-	Routes     []Route
-	Middleware []Middleware
+	Routes          []Route
+	Middleware      []Middleware
+	NotFoundHandler Handler
+	// Add route tree for better performance
+	staticRoutes map[string]map[string]Handler // path -> method -> handler
+	hasWildcards bool
 }
 
 func NewRouter() Router {
 	return Router{
-		Routes: make([]Route, 0),
+		Routes:          make([]Route, 0),
+		staticRoutes:    make(map[string]map[string]Handler),
+		NotFoundHandler: NotFoundHandler,
 	}
 }
 
@@ -50,8 +60,22 @@ func (router *Router) TRACE(path string, handler Handler, middleware ...Middlewa
 }
 
 func (router *Router) Any(methods []string, path string, handler Handler, middleware ...Middleware) {
-	for _, middleware := range middleware {
-		handler = middleware(handler)
+	// Apply middleware in reverse order
+	for i := len(middleware) - 1; i >= 0; i-- {
+		handler = middleware[i](handler)
+	}
+
+	// Check if path has wildcards
+	if strings.Contains(path, ":") || strings.Contains(path, "*") {
+		router.hasWildcards = true
+	} else {
+		// Add to static route map for O(1) lookup
+		if router.staticRoutes[path] == nil {
+			router.staticRoutes[path] = make(map[string]Handler)
+		}
+		for _, method := range methods {
+			router.staticRoutes[path][method] = handler
+		}
 	}
 
 	router.Routes = append(router.Routes, Route{
@@ -78,22 +102,30 @@ func (router *Router) Group(path string, groupFunc func(group *Router), middlewa
 
 func (router *Router) Handler() Handler {
 	return func(req *Request, res *Response) {
-		handler := NotFoundHandler
-		for _, route := range router.Routes {
-			if route.Path != string(req.Path) {
-				continue
-			}
+		path := string(req.Path)
+		method := string(req.Method)
 
-			for _, method := range route.Methods {
-				if method != string(req.Method) {
-					continue
-				}
-
-				handler = route.Handler
-				break
+		// Fast path: check static routes first (O(1) lookup)
+		if methodMap, exists := router.staticRoutes[path]; exists {
+			if handler, exists := methodMap[method]; exists {
+				handler(req, res)
+				return
 			}
 		}
 
-		handler(req, res)
+		// Slower path: check wildcard routes if any exist
+		if router.hasWildcards {
+			for _, route := range router.Routes {
+				if route.Path == path {
+					if slices.Contains(route.Methods, method) {
+						route.Handler(req, res)
+						return
+					}
+				}
+			}
+		}
+
+		// No route found
+		router.NotFoundHandler(req, res)
 	}
 }

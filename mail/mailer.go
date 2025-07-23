@@ -54,11 +54,11 @@ type microsoftMailer struct {
 }
 
 func (mailer *microsoftMailer) Send(mails ...Mail) error {
-	client := oauth.MicrosoftClient{
-		ClientId:     mailer.clientId,
-		ClientSecret: mailer.clientSecret,
-		TokenUrl:     fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", mailer.tenantId),
-	}
+	client := oauth.NewMicrosoftClient(
+		mailer.clientId,
+		mailer.clientSecret,
+		fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", mailer.tenantId),
+	)
 
 	token, err := client.Token()
 	if err != nil {
@@ -91,7 +91,7 @@ func (mailer *microsoftMailer) Send(mails ...Mail) error {
 	if err != nil {
 		return errors.Join(errors.New("buffer fucked up"), err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 	req.Header.Set("Content-Type", "application/json")
 	mailclient := &http.Client{}
 	resp, err := mailclient.Do(req)

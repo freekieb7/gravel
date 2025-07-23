@@ -19,12 +19,26 @@ type Server struct {
 	Handler        func(req *Request, res *Response)
 	ShutdownCh     chan struct{}
 	Wg             sync.WaitGroup // Registers shutdowns
+
+	// Configuration options
+	ReadTimeout      time.Duration
+	WriteTimeout     time.Duration
+	IdleTimeout      time.Duration
+	MaxHeaderBytes   int
+	DisableKeepAlive bool
+
+	Logger *slog.Logger
 }
 
 func NewServer(handler Handler) Server {
 	return Server{
-		Handler:    handler,
-		ShutdownCh: make(chan struct{}),
+		Handler:        handler,
+		ShutdownCh:     make(chan struct{}),
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB
+		Logger:         slog.Default(),
 	}
 }
 
@@ -48,7 +62,7 @@ func (s *Server) ListenAndServe(addr string) error {
 func (s *Server) Serve(ln net.Listener) error {
 	defer func() {
 		if err := ln.Close(); err != nil {
-			slog.Error("ln.Close error", "error", err)
+			s.Logger.Error("ln.Close error", "error", err)
 		}
 	}()
 
@@ -93,7 +107,7 @@ func (s *Server) Serve(ln net.Listener) error {
 		// Set a short timeout for Accept during shutdown
 		if tcpLn, ok := ln.(*net.TCPListener); ok {
 			if err := tcpLn.SetDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
-				slog.Error("SetDeadline error", "error", err)
+				s.Logger.Error("SetDeadline error", "error", err)
 			}
 		}
 
@@ -139,7 +153,7 @@ func (s *Server) Serve(ln net.Listener) error {
 
 		// All workers busy
 		if err := conn.Close(); err != nil {
-			slog.Error("closing connection error", "error", err)
+			s.Logger.Error("closing connection error", "error", err)
 		}
 
 	next_connection:
@@ -153,7 +167,7 @@ func (s *Server) ServeConn(ch chan net.Conn) {
 	// Shutdown / crash behaviour
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("panic recovered", "error", r)
+			s.Logger.Error("panic recovered", "error", r)
 		}
 	}()
 
@@ -209,7 +223,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) handleConnection(conn net.Conn, br *bufio.Reader, bw *bufio.Writer, req *Request, res *Response) {
 	defer func() {
 		if err := conn.Close(); err != nil {
-			slog.Error("closing connection error", "error", err)
+			s.Logger.Error("closing connection error", "error", err)
 		}
 	}()
 
@@ -217,23 +231,23 @@ func (s *Server) handleConnection(conn net.Conn, br *bufio.Reader, bw *bufio.Wri
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if err := tcpConn.SetNoDelay(true); err != nil { // Disable Nagle's algorithm
 			// Log but don't fail - this is an optimization
-			slog.Error("SetNoDelay error", "error", err)
+			s.Logger.Error("SetNoDelay error", "error", err)
 		}
 		if err := tcpConn.SetKeepAlive(true); err != nil { // Enable keep-alive
 			// Log but don't fail - this is an optimization
-			slog.Error("SetKeepAlive error", "error", err)
+			s.Logger.Error("SetKeepAlive error", "error", err)
 		}
 		if err := tcpConn.SetKeepAlivePeriod(3 * time.Minute); err != nil { // Set longer keep-alive period
 			// Log but don't fail - this is an optimization
-			slog.Error("SetKeepAlivePeriod error", "error", err)
+			s.Logger.Error("SetKeepAlivePeriod error", "error", err)
 		}
 		if err := tcpConn.SetReadBuffer(128 * 1024); err != nil { // Set larger read buffer for better performance
 			// Log but don't fail - this is an optimization
-			slog.Error("SetReadBuffer error", "error", err)
+			s.Logger.Error("SetReadBuffer error", "error", err)
 		}
 		if err := tcpConn.SetWriteBuffer(128 * 1024); err != nil { // Set larger write buffer for better performance
 			// Log but don't fail - this is an optimization
-			slog.Error("SetWriteBuffer error", "error", err)
+			s.Logger.Error("SetWriteBuffer error", "error", err)
 		}
 	}
 
@@ -242,7 +256,7 @@ func (s *Server) handleConnection(conn net.Conn, br *bufio.Reader, bw *bufio.Wri
 
 	// Reduced connection timeout for faster shutdown
 	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		slog.Error("SetDeadline error", "error", err)
+		s.Logger.Error("SetDeadline error", "error", err)
 	}
 
 	requestCount := 0
@@ -268,7 +282,7 @@ func (s *Server) handleConnection(conn net.Conn, br *bufio.Reader, bw *bufio.Wri
 			res.KeepAlive = false
 			res.Body = []byte("Server shutting down")
 			if err := res.WriteTo(bw); err != nil {
-				slog.Error("WriteTo error", "error", err)
+				s.Logger.Error("WriteTo error", "error", err)
 			}
 			return
 		default:
@@ -314,13 +328,13 @@ func (s *Server) handleConnection(conn net.Conn, br *bufio.Reader, bw *bufio.Wri
 		// Update deadline more frequently for faster shutdown
 		if requestCount%5 == 0 {
 			if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-				slog.Error("SetDeadline error", "error", err)
+				s.Logger.Error("SetDeadline error", "error", err)
 			}
 		}
 	}
 
 	// Final flush for any remaining data
 	if err := bw.Flush(); err != nil {
-		slog.Error("Flush error", "error", err)
+		s.Logger.Error("Flush error", "error", err)
 	}
 }

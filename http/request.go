@@ -22,6 +22,8 @@ type Request struct {
 
 	queryParams      [32]QueryParam
 	queryParamsCount int
+
+	lowerKey [64]byte // Pre-allocated buffer for lowercased keys
 }
 
 func (req *Request) Reset() {
@@ -47,7 +49,7 @@ func (req *Request) QueryParam(name []byte) ([]byte, bool) {
 	}
 
 	// Search through stored params
-	for i := 0; i < req.headerCount; i++ {
+	for i := 0; i < req.queryParamsCount; i++ {
 		h := &req.queryParams[i]
 
 		// Check if name length matches
@@ -416,15 +418,19 @@ func (req *Request) readChunkedBody(br *bufio.Reader) error {
 
 // Add Header method to retrieve header value
 func (req *Request) Header(name []byte) ([]byte, bool) {
-	// Convert name to lowercase for case-insensitive comparison
-	lowerName := make([]byte, len(name))
-	for i, b := range name {
-		if b >= 'A' && b <= 'Z' {
-			lowerName[i] = b + 32 // Convert to lowercase
+	if len(name) > len(req.lowerKey) {
+		return nil, false
+	}
+
+	// Use pre-allocated buffer
+	for i := range name {
+		if name[i] >= 'A' && name[i] <= 'Z' {
+			req.lowerKey[i] = name[i] + 32
 		} else {
-			lowerName[i] = b
+			req.lowerKey[i] = name[i]
 		}
 	}
+	lowerName := req.lowerKey[:len(name)]
 
 	// Search through stored headers
 	for i := 0; i < req.headerCount; i++ {
@@ -453,26 +459,97 @@ func (req *Request) Header(name []byte) ([]byte, bool) {
 }
 
 func (req *Request) AddCookie(cookie Cookie) {
-	// if req.Headers["Set-Cookie"] == nil {
-	// 	req.Headers["Set-Cookie"] = []string{}
-	// }
+	// Get existing Cookie header
+	existingCookie, found := req.Header([]byte("cookie"))
 
-	// req.Headers["Cookie"] = append(req.Headers["Cookie"], cookie.String())
+	var newCookieValue []byte
+	cookieStr := []byte(cookie.Name + "=" + cookie.Value)
+
+	if found && len(existingCookie) > 0 {
+		// Append to existing cookies with semicolon separator
+		newCookieValue = make([]byte, len(existingCookie)+len(cookieStr)+2)
+		copy(newCookieValue, existingCookie)
+		copy(newCookieValue[len(existingCookie):], []byte("; "))
+		copy(newCookieValue[len(existingCookie)+2:], cookieStr)
+	} else {
+		// First cookie
+		newCookieValue = cookieStr
+	}
+
+	// Update or add the Cookie header
+	req.setCookieHeader(newCookieValue)
 }
 
-func (req *Request) Cookie(name string) (Cookie, error) {
-	// todo
-	var cookie Cookie
-	return cookie, nil
+// Helper method to set/update the Cookie header
+func (req *Request) setCookieHeader(value []byte) {
+	// Find existing Cookie header and update it
+	for i := 0; i < req.headerCount; i++ {
+		h := &req.headers[i]
+		if h.NameLen == 6 && bytes.Equal(h.Name[:6], []byte("cookie")) {
+			// Update existing header
+			h.ValueLen = min(len(value), len(h.Value))
+			copy(h.Value[:h.ValueLen], value[:h.ValueLen])
+			return
+		}
+	}
 
-	// reqCookies, found := req.Headers["Cookie"]
-	// if !found {
-	// 	return cookie, ErrNoCookie
-	// }
+	// Add new Cookie header if not found and we have space
+	if req.headerCount < len(req.headers) {
+		h := &req.headers[req.headerCount]
+		copy(h.Name[:], []byte("cookie"))
+		h.NameLen = 6
+		h.ValueLen = min(len(value), len(h.Value))
+		copy(h.Value[:h.ValueLen], value[:h.ValueLen])
+		req.headerCount++
+	}
+}
 
-	// if err := cookie.Parse(data); err != nil {
-	// 	return cookie, err
-	// }
+func (req *Request) Cookie(name []byte) (Cookie, error) {
+	// Find the Cookie header
+	cookieHeader, found := req.Header([]byte("cookie"))
+	if !found {
+		return Cookie{}, ErrNoCookie
+	}
+
+	// Parse cookies without allocations
+	start := 0
+	for i := 0; i <= len(cookieHeader); i++ {
+		if i == len(cookieHeader) || cookieHeader[i] == ';' {
+			if i > start {
+				cookieStr := cookieHeader[start:i]
+
+				// Trim leading spaces
+				for len(cookieStr) > 0 && cookieStr[0] == ' ' {
+					cookieStr = cookieStr[1:]
+				}
+
+				// Find = separator
+				eq := bytes.IndexByte(cookieStr, '=')
+				if eq >= 0 {
+					cookieName := cookieStr[:eq]
+					cookieValue := cookieStr[eq+1:]
+
+					// Check if this matches our target name
+					if bytes.Equal(cookieName, name) {
+						// URL decode the value in-place using a temp buffer
+						var decodedBuf [256]byte
+						decodedLen, err := req.urlDecode(cookieValue, decodedBuf[:])
+						if err != nil {
+							return Cookie{}, err
+						}
+
+						return Cookie{
+							Name:  string(cookieName),
+							Value: string(decodedBuf[:decodedLen]),
+						}, nil
+					}
+				}
+			}
+			start = i + 1
+		}
+	}
+
+	return Cookie{}, ErrNoCookie
 }
 
 func (req *Request) urlDecode(src []byte, dst []byte) (int, error) {

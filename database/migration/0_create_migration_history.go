@@ -5,7 +5,7 @@ import (
 )
 
 func init() {
-	RegisterMigration(historyMigration{})
+	panic(RegisterMigration(historyMigration{}))
 }
 
 type historyMigration struct {
@@ -13,6 +13,10 @@ type historyMigration struct {
 
 func (migration historyMigration) Version() string {
 	return "0_create_migration_history"
+}
+
+func (migration historyMigration) Description() string {
+	return "Create migration history table"
 }
 
 func (migration historyMigration) Up(ctx context.Context) (string, []any) {

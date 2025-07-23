@@ -2,6 +2,7 @@ package http
 
 import (
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"runtime"
@@ -324,7 +325,8 @@ func benchmarkServerGet(b *testing.B, clientsCount, requestsPerConn int) {
 	s := NewServer(func(req *Request, res *Response) {
 		registerServedRequest(b, ch)
 	})
-	s.WorkerPoolSize = 1
+	s.Logger = slog.New(slog.DiscardHandler)
+	s.WorkerPoolSize = 4
 	benchmarkServer(b, &s, clientsCount, requestsPerConn, getRequest)
 	verifyRequestsServed(b, ch)
 }

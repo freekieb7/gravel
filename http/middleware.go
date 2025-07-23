@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/freekieb7/gravel/session"
@@ -14,7 +13,7 @@ import (
 )
 
 var (
-	ErrNoCookie = errors.New("http: no cookie error")
+	SessionID = []byte("SID")
 )
 
 type Middleware func(next Handler) Handler
@@ -24,7 +23,11 @@ func RecoverMiddleware() Middleware {
 		return func(req *Request, res *Response) {
 			defer func() {
 				if recover := recover(); recover != nil {
-					log.Println(recover)
+					slog.Error("recovered from panic", "error", recover)
+					res.Status = StatusInternalServerError
+					res.SetHeader([]byte("Cache-Control"), []byte("no-cache, no-store, must-revalidate"))
+					res.SetHeader([]byte("Pragma"), []byte("no-cache"))
+					res.SetHeader([]byte("Expires"), []byte("0"))
 
 					res.WithText("something went wrong")
 					return
@@ -39,7 +42,7 @@ func RecoverMiddleware() Middleware {
 func EnforceCookieMiddleware() Middleware {
 	return func(next Handler) Handler {
 		return func(req *Request, res *Response) {
-			_, err := req.Cookie("SID")
+			_, err := req.Cookie(SessionID)
 			if errors.Is(err, ErrNoCookie) {
 				rawCookieValue := make([]byte, 16)
 				_, err := rand.Read(rawCookieValue)
@@ -74,8 +77,8 @@ func SessionMiddleware() Middleware {
 
 	return func(next Handler) Handler {
 		return func(req *Request, res *Response) {
-			cookie, err := req.Cookie("SID")
-			if errors.Is(err, http.ErrNoCookie) {
+			cookie, err := req.Cookie(SessionID)
+			if errors.Is(err, ErrNoCookie) {
 				res.Status = StatusInternalServerError
 				return
 			}
